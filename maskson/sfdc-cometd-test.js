@@ -37,7 +37,7 @@ function updateRecordPG(recordChange) {
   );
 }
 
-var synced_objects = ["Account", "Contact"];
+var synced_objects = ["Account", "Contact", "ccrz__E_Order__c"];
 
 function processMessage(message) {
   console.log(JSON.stringify(message, null, 2));
@@ -79,7 +79,7 @@ pgClient
   .then((res) => console.log(">>> SFDC Connection Authenticated"))
   .then((res) =>
     sfConn.streaming
-      .channel("/data/AccountChangeEvent")
+      .channel("/data/ChangeEvents")
       .subscribe(processMessage)
   )
   .catch(failureCallback);
