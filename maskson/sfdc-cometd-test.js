@@ -22,28 +22,70 @@ const sfConn = new jsforce.Connection({
   loginUrl: "https://test.salesforce.com",
 });
 
-// Single record update
-function updateRecordPG(recordChange) {
-  console.log(">>> SYNC EVENT TO PG");
-  pgClient.query(
-    "UPDATE corps.workcenters SET notes = $1, updated_by_sfdc_at = NOW() WHERE sfdc_object_id = $2",
-    [
-      recordChange.payload.Delivery_Notes__c,
-      recordChange.payload.ChangeEventHeader.recordIds[0],
-    ],
-    (err, res) => {
-      console.log(err ? err.stack : res);
-    }
-  );
-}
+const syncMap = {
+  Account: {
+    table: "workcenters",
+    fields: {
+      ShippingAddress: "address", // TODO: handle addresses
+      Delivery_Notes__c: "notes",
+      Name: "workcenter",
+    },
+  },
+  Contact: {
+    table: "customers",
+    fields: {
+      MobilePhone: "phone_number",
+    },
+  },
+  ccrz__E_Order__c: {
+    table: "demands",
+    fields: {
+      ccrz__Note__c: "notes",
+    },
+  },
+};
 
-var synced_objects = ["Account", "Contact", "ccrz__E_Order__c"];
+// Single record update
+function updateRecordPG(change) {
+  console.log(">>> SYNC EVENT TO PG");
+
+  const sfObject = change.ChangeEventHeader.entityName;
+  const recordMap = syncMap[sfObject];
+  const sfID = change.ChangeEventHeader.recordIds[0];
+
+  var fieldsToSet = "";
+
+  for (let [sfField, pgField] of Object.entries(recordMap.fields)) {
+    if (change[sfField]) {
+      fieldsToSet = fieldsToSet.concat(
+        `\n    ${pgField} = '${change[sfField]}',`
+      );
+    }
+  }
+
+  // If no updated fields
+  if (fieldsToSet == "") {
+    console.log("--> No relevant field changes to sync");
+    return;
+  }
+
+  const queryText = `UPDATE corps.${recordMap.table}
+  SET ${fieldsToSet}
+    updated_by_sfdc_at = NOW()
+  WHERE sfdc_object_id = '${sfID}'`;
+
+  console.log("--> PG Query:\n", queryText);
+
+  pgClient.query(queryText, (err, res) => {
+    console.log(err ? err.stack : res);
+  });
+}
 
 function processMessage(message) {
   console.log(JSON.stringify(message, null, 2));
 
   let filters = {
-    object: synced_objects.includes(
+    object: Object.keys(syncMap).includes(
       message.payload.ChangeEventHeader.entityName
     ),
     pg_update:
@@ -62,7 +104,7 @@ function processMessage(message) {
 
   if (filter_errors.length == 0) {
     console.log(">>> EVENT PASSED FILTERS");
-    updateRecordPG(message);
+    updateRecordPG(message.payload);
   } else {
     console.log(">>> IGNORED EVENT");
     console.log("--> Did not pass filters:", filter_errors);
@@ -78,9 +120,7 @@ pgClient
   .then((res) => sfConn.login(username, password + securityToken))
   .then((res) => console.log(">>> SFDC Connection Authenticated"))
   .then((res) =>
-    sfConn.streaming
-      .channel("/data/ChangeEvents")
-      .subscribe(processMessage)
+    sfConn.streaming.channel("/data/ChangeEvents").subscribe(processMessage)
   )
   .catch(failureCallback);
 //.then((res) => pgClient.end());
