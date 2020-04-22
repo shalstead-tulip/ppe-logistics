@@ -1,7 +1,7 @@
 const jsforce = require("jsforce");
 const pg = require("pg");
 
-import { SECRETS } from './local-secrets.js'
+const { SECRETS } = require("./local-secrets.js");
 
 // Salesforce Connection Info
 const username = "steven.halstead+maskson@tulip.co.tulipdev1";

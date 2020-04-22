@@ -2,7 +2,7 @@ const jsforce = require("jsforce");
 const pg = require("pg");
 const Wal2JSONListener = require("node-wal2json");
 
-import { SECRETS } from './local-secrets.js'
+const { SECRETS } = require("./local-secrets.js");
 
 // Salesforce Connection Info
 const username = "steven.halstead+maskson@tulip.co.tulipdev1";
@@ -32,7 +32,6 @@ const options = {
   slotName: "test_slot",
   timeout: 500,
 };
-
 
 // Single record update
 function updateRecordSFDC(change) {
@@ -142,7 +141,7 @@ function handleInboundChangeSets(changeSets) {
 }
 
 // Set up WAL listener
-const wal2JSONListener = new Wal2JSONListener(client, options, walOptions);
+const wal2JSONListener = new Wal2JSONListener(pgClient, options, walOptions);
 
 wal2JSONListener.on("changes", handleInboundChangeSets);
 
