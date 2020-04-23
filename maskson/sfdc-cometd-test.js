@@ -47,7 +47,7 @@ const syncMap = {
 
 // Single record update
 function updateRecordPG(change) {
-  console.log(">>> SYNC EVENT TO PG");
+  console.log(">>> SYNC RECORD UPDATE TO PG");
 
   const sfObject = change.ChangeEventHeader.entityName;
   const recordMap = syncMap[sfObject];
@@ -81,6 +81,49 @@ function updateRecordPG(change) {
   });
 }
 
+// Single record create
+function createRecordPG(change) {
+  console.log(">>> SYNC NEW RECORD TO PG");
+
+  const sfObject = change.ChangeEventHeader.entityName;
+  const recordMap = syncMap[sfObject];
+  const sfID = change.ChangeEventHeader.recordIds[0];
+
+  var fieldsToSet = "";
+  var fieldValues = "";
+
+  for (let [sfField, pgField] of Object.entries(recordMap.fields)) {
+    if (change[sfField]) {
+      fieldsToSet = fieldsToSet.concat(`${pgField}, `);
+      fieldValues = fieldValues.concat(`'${change[sfField]}', `);
+    }
+  }
+
+  const queryText = `INSERT INTO corps.${recordMap.table}
+  (${fieldsToSet}updated_by_sfdc_at, sfdc_object_id)
+  VALUES
+  (${fieldValues}NOW(), '${sfID}')`;
+
+  console.log("--> PG Query:\n", queryText);
+
+  pgClient.query(queryText, (err, res) => {
+    console.log(err ? err.stack : res);
+  });
+}
+
+function routeChange(change) {
+  const changeType = change.ChangeEventHeader.changeType;
+  if (changeType == "UPDATE") {
+    updateRecordPG(change);
+  } else if (changeType == "CREATE") {
+    createRecordPG(change);
+  } else if (changeType == "DELETE") {
+    // TODO
+  } else {
+    console.log(`--> Ignoring change of type ${changeType}`);
+  }
+}
+
 function processMessage(message) {
   console.log(JSON.stringify(message, null, 2));
 
@@ -104,7 +147,7 @@ function processMessage(message) {
 
   if (filter_errors.length == 0) {
     console.log(">>> EVENT PASSED FILTERS");
-    updateRecordPG(message.payload);
+    routeChange(message.payload);
   } else {
     console.log(">>> IGNORED EVENT");
     console.log("--> Did not pass filters:", filter_errors);
