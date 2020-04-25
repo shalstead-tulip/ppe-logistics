@@ -1,15 +1,18 @@
+const AWS = require("aws-sdk");
 const pg = require("pg");
 
-const { SECRETS } = require("./local-secrets.js");
+const decrypt = async (env_var) => {
+  const kms = new AWS.KMS();
 
-// Postgres Connection Info
-const pgClient = new pg.Client({
-  host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-  port: 5432,
-  user: "tulip",
-  password: SECRETS.PG_PWD,
-  database: "maskson_sfdc_dev",
-});
+  console.log("Decrypting key: " + env_var);
+  return (
+    await kms
+      .decrypt({
+        CiphertextBlob: new Buffer.from(process.env[env_var], "base64"),
+      })
+      .promise()
+  ).Plaintext.toString("ascii");
+};
 
 const test_msg_1 = {
   institution: {
@@ -265,7 +268,23 @@ function failureCallback(error) {
   console.error("Error: " + error);
 }
 
-pgClient
-  .connect()
-  .then((res) => createOrder(test_msg_1))
-  .catch(failureCallback);
+exports.handler = async (event) => {
+  // Postgres Connection Info
+  var pgClient = new pg.Client({
+    host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
+    port: 5432,
+    user: "tulip",
+    password: await decrypt("PG_PWD"),
+    database: "maskson_sfdc_dev",
+  });
+
+  const response = {
+    statusCode: 200,
+    body: JSON.stringify("Hello from Lambda!"),
+  };
+
+  return pgClient
+    .connect()
+    .then((res) => createOrder(test_msg_1))
+    .catch(failureCallback);
+};
