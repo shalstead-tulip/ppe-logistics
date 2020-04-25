@@ -1,0 +1,15 @@
+{
+  "name": "maskson-inbound_orders",
+  "version": "1.0.0",
+  "description": "lamdbda to handle creation/update of orders",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "shalstead",
+  "license": "ISC",
+  "dependencies": {
+    "aws-sdk": "^2.663.0",
+    "pg": "^8.0.3"
+  }
+}
