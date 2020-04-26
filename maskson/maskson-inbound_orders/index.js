@@ -145,6 +145,9 @@ function createOrder(dbClient, o) {
       dbClient.query("ROLLBACK");
       throw { type: "ROLLBACK", error: err };
     });
+
+  // Test Query for validating PROD/DEV DB connections
+  //return dbClient.query("SELECT * FROM corps.demands ORDER BY createdts DESC NULLS LAST LIMIT 1");
 }
 
 function failureCallback(error) {
