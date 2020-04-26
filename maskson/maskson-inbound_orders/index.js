@@ -1,18 +1,19 @@
 const AWS = require("aws-sdk");
 const pg = require("pg");
 
-const decrypt = async (env_var) => {
+function decrypt(env_var) {
   const kms = new AWS.KMS();
 
   console.log("Decrypting key: " + env_var);
-  return (
-    await kms
-      .decrypt({
-        CiphertextBlob: new Buffer.from(process.env[env_var], "base64"),
-      })
-      .promise()
-  ).Plaintext.toString("ascii");
-};
+  return kms
+    .decrypt({
+      CiphertextBlob: new Buffer.from(process.env[env_var], "base64"),
+    })
+    .promise()
+    .then((res) => {
+      return res.Plaintext.toString("ascii");
+    });
+}
 
 const test_msg_1 = {
   institution: {
@@ -107,7 +108,7 @@ function updateRecordPG(change) {
 }
 
 // Single record create
-function createOrder(o) {
+function createOrder(dbClient, o) {
   console.log(">>> SYNC NEW RECORD TO PG");
 
   // CUSTOMERS
@@ -208,17 +209,17 @@ function createOrder(o) {
   console.log("--> CREATE WORKCENTER:", insertWorkcenter);
   console.log("--> CREATE DEMANDS:", insertDemands);
 
-  // pgClient.query(insertCustomer, (err, res) => {
-  //   console.log(err ? err.stack : res);
-  // });
-
-  pgClient
-    .query(insertCustomer)
-    .then((res) => pgClient.query(insertAddress))
-    .then((res) => pgClient.query(insertWorkcenter))
-    .then((res) => pgClient.query(insertDemands))
-    .catch((e) => console.error(e.stack))
-    .then((res) => pgClient.end());
+  return dbClient
+    .query("BEGIN")
+    .then((res) => dbClient.query(insertCustomer))
+    .then((res) => dbClient.query(insertAddress))
+    .then((res) => dbClient.query(insertWorkcenter))
+    .then((res) => dbClient.query(insertDemands))
+    .then((res) => dbClient.query("COMMIT"))
+    .catch((err) => {
+      dbClient.query("ROLLBACK");
+      throw { type: "ROLLBACK", error: err };
+    });
 }
 
 function routeChange(change) {
@@ -266,25 +267,42 @@ function processMessage(message) {
 
 function failureCallback(error) {
   console.error("Error: " + error);
+  const response = {
+    statusCode: 500,
+    body: "Internal Server Error",
+    error: error,
+  };
+  return response;
 }
 
-exports.handler = async (event) => {
-  // Postgres Connection Info
-  var pgClient = new pg.Client({
+function successCallback(res) {
+  console.log("Result: " + res);
+  const response = {
+    statusCode: 200,
+    body: "Success",
+    result: res,
+  };
+  return response;
+}
+
+function getDBClient(pwd) {
+  dbClient = new pg.Client({
     host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
     port: 5432,
     user: "tulip",
-    password: await decrypt("PG_PWD"),
+    password: pwd,
     database: "maskson_sfdc_dev",
   });
 
-  const response = {
-    statusCode: 200,
-    body: JSON.stringify("Hello from Lambda!"),
-  };
+  dbClient.connect();
 
-  return pgClient
-    .connect()
-    .then((res) => createOrder(test_msg_1))
-    .catch(failureCallback);
+  return dbClient;
+}
+
+exports.handler = async (event) => {
+  return decrypt("PG_PWD")
+    .then((pwd) => getDBClient(pwd))
+    .then((dbClient) => createOrder(dbClient, test_msg_1))
+    .then((res) => successCallback(res))
+    .catch((error) => failureCallback(error));
 };
