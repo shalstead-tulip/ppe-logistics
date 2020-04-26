@@ -195,9 +195,17 @@ function getDBClient(pwd, env) {
 
 exports.handler = async (event) => {
   console.log("NEW EVENT:", event);
+  const env = event.stageVariables.environment;
 
-  return decrypt("PG_PWD_" + event.stageVariables.environment)
-    .then((pwd) => getDBClient(pwd, event.stageVariables.environment))
+  if (
+    "Bearer " + process.env["AUTH_TOKEN_" + env] !=
+    event.headers.Authorization
+  ) {
+    return failureCallback("Invalid bearer token");
+  }
+
+  return decrypt("PG_PWD_" + env)
+    .then((pwd) => getDBClient(pwd, env))
     .then((dbClient) => createOrder(dbClient, JSON.parse(event.body)))
     .then((res) => successCallback(res))
     .catch((error) => failureCallback(error));
