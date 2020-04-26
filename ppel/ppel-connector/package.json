@@ -1,5 +1,5 @@
 {
-  "name": "maskson-inbound_orders",
+  "name": "ppel-connector",
   "version": "1.0.0",
   "description": "lamdbda to handle creation/update of orders",
   "main": "index.js",
@@ -11,5 +11,6 @@
   "dependencies": {
     "aws-sdk": "^2.663.0",
     "pg": "^8.0.3"
-  }
+  },
+  "devDependencies": {}
 }
