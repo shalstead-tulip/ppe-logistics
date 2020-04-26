@@ -31,7 +31,8 @@ function createOrder(dbClient, o) {
     phone_number,
     notes,
     tulipid,
-    legalaccept
+    legalaccept,
+    delivery_address
   )
   VALUES (
     '${o.customer.affiliation}',
@@ -42,23 +43,23 @@ function createOrder(dbClient, o) {
     '${o.customer.phone}',
     '${o.customer.notes}',
     'LAMBDA-' || '${o.customer.email}',
-    '${o.customer.legalStatus}'
+    '${o.customer.legalStatus}',
+    '${o.customer.address}'
   )`;
 
   // ADDRESSES
+  // TODO: Add all addresses
   const insertAddress = `
   INSERT INTO corps.addresses (
     address,
     hospital,
-    notes,
     tulipid
   )
-  VALUES (
-    '${o.institution.address}',
-    '${o.institution.name}',
-    '${o.institution.deliveryNotes}',
-    'LAMBDA-' || '${o.customer.email}'
-  )`;
+  VALUES
+  ('${o.institution.address}','${o.institution.name}','LAMBDA-' || '${o.customer.email}'),
+  ('${o.institution.deliveryAddress}','${o.institution.name}','LAMBDA-' || '${o.customer.email}'),
+  ('${o.customer.address}','${o.institution.name}','LAMBDA-' || '${o.customer.email}')
+  `;
 
   // WORKCENTERS
   const insertWorkcenter = `
