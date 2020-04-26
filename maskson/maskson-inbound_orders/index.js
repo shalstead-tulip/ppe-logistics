@@ -34,15 +34,15 @@ function createOrder(dbClient, o) {
     legalaccept
   )
   VALUES (
-    '${o.client.affiliation}',
-    '${o.client.email}',
-    '${o.client.fullName}',
+    '${o.customer.affiliation}',
+    '${o.customer.email}',
+    '${o.customer.fullName}',
     '${o.institution.name}',
     '${o.institution.address}',
-    '${o.client.phone}',
-    '${o.client.notes}',
-    'LAMBDA-' || '${o.client.email}',
-    '${o.client.legalStatus}'
+    '${o.customer.phone}',
+    '${o.customer.notes}',
+    'LAMBDA-' || '${o.customer.email}',
+    '${o.customer.legalStatus}'
   )`;
 
   // ADDRESSES
@@ -57,7 +57,7 @@ function createOrder(dbClient, o) {
     '${o.institution.address}',
     '${o.institution.name}',
     '${o.institution.deliveryNotes}',
-    '${o.client.email}'
+    'LAMBDA-' || '${o.customer.email}'
   )`;
 
   // WORKCENTERS
@@ -117,7 +117,7 @@ function createOrder(dbClient, o) {
       '${o.externalID}',
       'BACKLOG',
       'BACKLOG',
-      'LAMBDA-' || '${o.client.email}',
+      'LAMBDA-' || '${o.customer.email}',
       '${o.institution.deliveryAddress}'
     )`;
     if (i > 0) {
@@ -147,7 +147,7 @@ function createOrder(dbClient, o) {
     });
 
   // Test Query for validating PROD/DEV DB connections
-  //return dbClient.query("SELECT * FROM corps.demands ORDER BY createdts DESC NULLS LAST LIMIT 1");
+  // return dbClient.query("SELECT * FROM corps.demands ORDER BY createdts DESC NULLS LAST LIMIT 1");
 }
 
 function failureCallback(error) {
