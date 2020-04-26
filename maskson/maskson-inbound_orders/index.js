@@ -49,17 +49,24 @@ function createOrder(dbClient, o) {
 
   // ADDRESSES
   // TODO: Add all addresses
-  const insertAddress = `
+  var insertAddress = `
   INSERT INTO corps.addresses (
     address,
     hospital,
     tulipid
   )
   VALUES
-  ('${o.institution.address}','${o.institution.name}','LAMBDA-' || '${o.customer.email}'),
-  ('${o.institution.deliveryAddress}','${o.institution.name}','LAMBDA-' || '${o.customer.email}'),
-  ('${o.customer.address}','${o.institution.name}','LAMBDA-' || '${o.customer.email}')
-  `;
+  ('${o.institution.address}','${o.institution.name}','LAMBDA-' || '${o.customer.email}'),`;
+
+  if (
+    o.institution.deliveryAddress &&
+    o.institution.deliveryAddress != o.institution.address
+  ) {
+    insertAddress = `${insertAddress}
+    ('${o.institution.deliveryAddress}','${o.institution.name}','LAMBDA-' || '${o.customer.email}'),`;
+  }
+  insertAddress = `${insertAddress}
+    ('${o.customer.address}','${o.institution.name}','LAMBDA-' || '${o.customer.email}')`;
 
   // WORKCENTERS
   const insertWorkcenter = `
