@@ -15,99 +15,6 @@ function decrypt(env_var) {
     });
 }
 
-const test_msg_1 = {
-  institution: {
-    name: "Test Hospital 1",
-    address: "21 Jump St",
-    deliveryAddress: "32 Hop Ave",
-    deliveryNotes: "Around the back",
-    notes: "blanket approved",
-  },
-  client: {
-    fullName: "Test Clinician 1",
-    affiliation: "Chief Resident ; Interacting with Patients",
-    phone: "123-123-1234",
-    email: "test@testhospital1.com",
-    notes: "TESTING ; Waiver signed 4/25/2020",
-    status: "OPEN",
-  },
-  lines: [
-    {
-      product: "PPE S/M v2",
-      quantity: "1",
-    },
-    {
-      product: "PPE L/XL v2",
-      quantity: "2",
-    },
-  ],
-  salesforceID: "123412341234",
-  orderID: "SF0001",
-  orderStatus: "OPEN",
-  org: "MasksOn",
-  notes: "handle with care",
-};
-
-const syncMap = {
-  Account: {
-    table: "workcenters",
-    fields: {
-      ShippingAddress: "address", // TODO: handle addresses
-      Delivery_Notes__c: "notes",
-      Name: "workcenter",
-    },
-  },
-  Contact: {
-    table: "customers",
-    fields: {
-      MobilePhone: "phone_number",
-    },
-  },
-  ccrz__E_Order__c: {
-    table: "demands",
-    fields: {
-      ccrz__Note__c: "notes",
-    },
-  },
-};
-
-// Single record update
-function updateRecordPG(change) {
-  console.log(">>> SYNC RECORD UPDATE TO PG");
-
-  const sfObject = change.ChangeEventHeader.entityName;
-  const recordMap = syncMap[sfObject];
-  const sfID = change.ChangeEventHeader.recordIds[0];
-
-  var fieldsToSet = "";
-
-  for (let [sfField, pgField] of Object.entries(recordMap.fields)) {
-    if (change[sfField]) {
-      fieldsToSet = fieldsToSet.concat(
-        `\n    ${pgField} = '${change[sfField]}',`
-      );
-    }
-  }
-
-  // If no updated fields
-  if (fieldsToSet == "") {
-    console.log("--> No relevant field changes to sync");
-    return;
-  }
-
-  const queryText = `UPDATE corps.${recordMap.table}
-  SET ${fieldsToSet}
-    updated_by_sfdc_at = NOW()
-  WHERE sfdc_object_id = '${sfID}'`;
-
-  console.log("--> PG Query:\n", queryText);
-
-  pgClient.query(queryText, (err, res) => {
-    console.log(err ? err.stack : res);
-  });
-}
-
-// Single record create
 function createOrder(dbClient, o) {
   console.log(">>> SYNC NEW RECORD TO PG");
 
@@ -131,7 +38,7 @@ function createOrder(dbClient, o) {
     '${o.institution.address}',
     '${o.client.phone}',
     '${o.client.notes}',
-    '${o.client.email}' || '-INTEGRATION-' || NOW()
+    '${o.client.email}'
   )`;
 
   // ADDRESSES
@@ -146,7 +53,7 @@ function createOrder(dbClient, o) {
     '${o.institution.address}',
     '${o.institution.name}',
     '${o.institution.deliveryNotes}',
-    '${o.client.email}' || '-INTEGRATION-' || NOW()
+    '${o.client.email}'
   )`;
 
   // WORKCENTERS
@@ -161,7 +68,7 @@ function createOrder(dbClient, o) {
   )
   VALUES (
     '${o.institution.address}',
-    '${o.institution.name}' || NOW(),
+    '${o.institution.name}',
     'Clinician',
     '${o.institution.notes}',
     '${o.org}',
@@ -222,49 +129,6 @@ function createOrder(dbClient, o) {
     });
 }
 
-function routeChange(change) {
-  const changeType = change.ChangeEventHeader.changeType;
-  if (changeType == "UPDATE") {
-    updateRecordPG(change);
-  } else if (changeType == "CREATE") {
-    createRecordPG(change);
-  } else if (changeType == "DELETE") {
-    // TODO
-  } else {
-    console.log(`--> Ignoring change of type ${changeType}`);
-  }
-}
-
-function processMessage(message) {
-  console.log(JSON.stringify(message, null, 2));
-
-  let filters = {
-    object: Object.keys(syncMap).includes(
-      message.payload.ChangeEventHeader.entityName
-    ),
-    pg_update:
-      message.payload.ChangeEventHeader.changeOrigin !=
-      "com/salesforce/api/rest/42.0",
-  };
-
-  console.log("Filters: ", JSON.stringify(filters, null, 2));
-
-  var filter_errors = [];
-  for (let k of Object.keys(filters)) {
-    if (!filters[k]) {
-      filter_errors.push(k);
-    }
-  }
-
-  if (filter_errors.length == 0) {
-    console.log(">>> EVENT PASSED FILTERS");
-    routeChange(message.payload);
-  } else {
-    console.log(">>> IGNORED EVENT");
-    console.log("--> Did not pass filters:", filter_errors);
-  }
-}
-
 function failureCallback(error) {
   console.error("Error: " + error);
   const response = {
@@ -302,7 +166,7 @@ function getDBClient(pwd) {
 exports.handler = async (event) => {
   return decrypt("PG_PWD")
     .then((pwd) => getDBClient(pwd))
-    .then((dbClient) => createOrder(dbClient, test_msg_1))
+    .then((dbClient) => createOrder(dbClient, event))
     .then((res) => successCallback(res))
     .catch((error) => failureCallback(error));
 };
