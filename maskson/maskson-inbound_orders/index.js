@@ -151,8 +151,8 @@ function failureCallback(error) {
   console.error("Error: " + JSON.stringify(error, null, 2));
   const response = {
     statusCode: 500,
-    body: "Internal Server Error",
-    error: error,
+    body: JSON.stringify({ summary: "Internal Server Error", error: error }),
+    isBase64Encoded: false,
   };
   return response;
 }
@@ -161,20 +161,32 @@ function successCallback(res) {
   console.log("Result: " + JSON.stringify(res, null, 2));
   const response = {
     statusCode: 200,
-    body: "Success",
-    result: res,
+    body: JSON.stringify({ summary: "Success", result: res }),
+    isBase64Encoded: false,
   };
   return response;
 }
 
-function getDBClient(pwd) {
-  dbClient = new pg.Client({
-    host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-    port: 5432,
-    user: "tulip",
-    password: pwd,
-    database: "maskson_sfdc_dev",
-  });
+function getDBClient(pwd, env) {
+  if (env == "DEV") {
+    console.log("CONNECTING TO DEV DB");
+    dbClient = new pg.Client({
+      host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
+      port: 5432,
+      user: "tulip",
+      password: pwd,
+      database: "maskson_sfdc_dev",
+    });
+  } else if (env == "PROD") {
+    console.log("CONNECTING TO PROD DB");
+    dbClient = new pg.Client({
+      host: "three-d-corps-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
+      port: 5432,
+      user: "tulip",
+      password: pwd,
+      database: "three_d_corps",
+    });
+  }
 
   dbClient.connect();
 
@@ -183,9 +195,10 @@ function getDBClient(pwd) {
 
 exports.handler = async (event) => {
   console.log("NEW EVENT:", event);
-  return decrypt("PG_PWD")
-    .then((pwd) => getDBClient(pwd))
-    .then((dbClient) => createOrder(dbClient, event))
+
+  return decrypt("PG_PWD_" + event.stageVariables.environment)
+    .then((pwd) => getDBClient(pwd, event.stageVariables.environment))
+    .then((dbClient) => createOrder(dbClient, JSON.parse(event.body)))
     .then((res) => successCallback(res))
     .catch((error) => failureCallback(error));
 };
