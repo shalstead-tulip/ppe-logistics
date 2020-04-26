@@ -18,6 +18,8 @@ function decrypt(env_var) {
 function createOrder(dbClient, o) {
   console.log(">>> SYNC NEW RECORD TO PG");
 
+  // TODO: add call to google geocoding API
+
   // CUSTOMERS
   const insertCustomer = `
   INSERT INTO corps.customers (
@@ -28,7 +30,8 @@ function createOrder(dbClient, o) {
     hospital_address,
     phone_number,
     notes,
-    tulipid
+    tulipid,
+    legalaccept
   )
   VALUES (
     '${o.client.affiliation}',
@@ -38,7 +41,8 @@ function createOrder(dbClient, o) {
     '${o.institution.address}',
     '${o.client.phone}',
     '${o.client.notes}',
-    '${o.client.email}'
+    'LAMBDA-' || '${o.client.email}',
+    '${o.client.legalStatus}'
   )`;
 
   // ADDRESSES
@@ -76,6 +80,7 @@ function createOrder(dbClient, o) {
   )`;
 
   // DEMANDS
+  // TODO: default order_status to CSR-REVIEW if not provided
   var insertDemands = `
   INSERT INTO corps.demands (
     orderid,
@@ -86,7 +91,12 @@ function createOrder(dbClient, o) {
     createdts,
     notes,
     order_status,
-    org
+    org,
+    external_identifier,
+    wolocation,
+    process_status,
+    alt_user,
+    alt_address
   )
   VALUES`;
 
@@ -102,8 +112,13 @@ function createOrder(dbClient, o) {
       '${l.quantity}',
       NOW(),
       '${o.notes}',
-      'OPEN',
-      '${o.org}'
+      '${o.orderStatus}',
+      '${o.org}',
+      '${o.externalID}',
+      'BACKLOG',
+      'BACKLOG',
+      'LAMBDA-' || '${o.client.email}',
+      '${o.institution.deliveryAddress}'
     )`;
     if (i > 0) {
       insertDemands = `${insertDemands},`;
@@ -123,6 +138,9 @@ function createOrder(dbClient, o) {
     .then((res) => dbClient.query(insertWorkcenter))
     .then((res) => dbClient.query(insertDemands))
     .then((res) => dbClient.query("COMMIT"))
+    .then((res) => {
+      return "ORDER CREATION SUCCESS";
+    })
     .catch((err) => {
       dbClient.query("ROLLBACK");
       throw { type: "ROLLBACK", error: err };
@@ -130,7 +148,7 @@ function createOrder(dbClient, o) {
 }
 
 function failureCallback(error) {
-  console.error("Error: " + error);
+  console.error("Error: " + JSON.stringify(error, null, 2));
   const response = {
     statusCode: 500,
     body: "Internal Server Error",
@@ -140,7 +158,7 @@ function failureCallback(error) {
 }
 
 function successCallback(res) {
-  console.log("Result: " + res);
+  console.log("Result: " + JSON.stringify(res, null, 2));
   const response = {
     statusCode: 200,
     body: "Success",
@@ -164,6 +182,7 @@ function getDBClient(pwd) {
 }
 
 exports.handler = async (event) => {
+  console.log("NEW EVENT:", event);
   return decrypt("PG_PWD")
     .then((pwd) => getDBClient(pwd))
     .then((dbClient) => createOrder(dbClient, event))
