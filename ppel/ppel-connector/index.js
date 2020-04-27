@@ -20,6 +20,9 @@ function createOrder(dbClient, o) {
 
   // TODO: add call to google geocoding API
 
+  // TODO: run this sanitization on all strings
+  o.institution.name = o.institution.name.replace("'", "''");
+
   // CUSTOMERS
   const insertCustomer = `
   INSERT INTO corps.customers (
