@@ -1,5 +1,11 @@
 const AWS = require("aws-sdk");
 const pg = require("pg");
+const { WebClient } = require("@slack/web-api");
+
+const slack = new WebClient(process.env.SLACK_TOKEN);
+
+// Define context as a global variable for the pod to make getting logs easier
+let podContext;
 
 function decrypt(env_var) {
   const kms = new AWS.KMS();
@@ -79,7 +85,8 @@ function createOrder(dbClient, o) {
     wcgroup,
     notes,
     org,
-    status
+    status,
+    createdts
   )
   VALUES (
     '${o.institution.address}',
@@ -87,7 +94,8 @@ function createOrder(dbClient, o) {
     'Clinician',
     '${o.institution.notes}',
     '${o.org}',
-    'OPEN'
+    'OPEN',
+    NOW()
   )`;
 
   // DEMANDS
@@ -161,23 +169,49 @@ function createOrder(dbClient, o) {
   // return dbClient.query("SELECT * FROM corps.demands ORDER BY createdts DESC NULLS LAST LIMIT 1");
 }
 
+// Returns a url that points to the log link of this particular invocation
+function getLogURL() {
+  return `https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#logEventViewer:group=${podContext.logGroupName};stream=${podContext.logStreamName}`;
+}
+
+function postToSlack(res) {
+  const m = "`"; // monospace
+  const b = "```"; // code block
+  var msg = `*ERROR FROM PPEL CONNECTOR LAMBDA*
+  ${m}statusCode: ${res.statusCode}${m} ${b}${res.body}${b}
+  _<${getLogURL()}|Cloudwatch Logs>_`;
+  return slack.chat
+    .postMessage({
+      channel: "#v-growth-eng-dev",
+      text: msg,
+    })
+    .then((r) => res)
+    .catch((e) => res);
+}
+
 function failureCallback(error) {
   console.error("Error: " + JSON.stringify(error, null, 2));
   const response = {
     statusCode: 500,
-    body: JSON.stringify({ summary: "Internal Server Error", error: error }),
+    body: JSON.stringify(
+      { summary: "Internal Server Error", error: error },
+      null,
+      4
+    ),
     isBase64Encoded: false,
   };
-  return response;
+
+  return postToSlack(response);
 }
 
 function successCallback(res) {
   console.log("Result: " + JSON.stringify(res, null, 2));
   const response = {
     statusCode: 200,
-    body: JSON.stringify({ summary: "Success", result: res }),
+    body: JSON.stringify({ summary: "Success", result: res }, null, 2),
     isBase64Encoded: false,
   };
+
   return response;
 }
 
@@ -207,8 +241,10 @@ function getDBClient(pwd, env) {
   return dbClient;
 }
 
-exports.handler = async (event) => {
+exports.handler = async (event, context) => {
   console.log("NEW EVENT:", event);
+  podContext = context;
+
   const env = event.stageVariables.environment;
 
   if (
