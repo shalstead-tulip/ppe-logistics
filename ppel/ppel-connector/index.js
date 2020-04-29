@@ -182,7 +182,7 @@ function postToSlack(res) {
   _<${getLogURL()}|Cloudwatch Logs>_`;
   return slack.chat
     .postMessage({
-      channel: "#v-growth-eng-dev",
+      channel: process.env.SLACK_CHANNEL,
       text: msg,
     })
     .then((r) => res)
