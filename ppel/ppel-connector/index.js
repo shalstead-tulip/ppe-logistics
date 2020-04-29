@@ -248,8 +248,8 @@ exports.handler = async (event, context) => {
   const env = event.stageVariables.environment;
 
   if (
-    "Bearer " + process.env["AUTH_TOKEN_" + env] !=
-    event.headers.Authorization
+    event.resource == "/order" &&
+    "Bearer " + process.env["AUTH_TOKEN_" + env] != event.headers.Authorization
   ) {
     return failureCallback("Invalid bearer token");
   }
