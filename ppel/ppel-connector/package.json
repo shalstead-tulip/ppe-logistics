@@ -9,7 +9,6 @@
   "author": "shalstead",
   "license": "ISC",
   "dependencies": {
-    "@googlemaps/google-maps-services-js": "^2.6.0",
     "@slack/web-api": "^5.8.0",
     "aws-sdk": "^2.663.0",
     "pg": "^8.0.3"
