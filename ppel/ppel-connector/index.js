@@ -139,28 +139,18 @@ function buildAddressQuery(i, c) {
 
 function buildWorkcenterQuery(o, i, c) {
   return `
-  INSERT INTO corps.workcenters (
-    address,
-    loc,
-    latlong,
-    workcenter,
-    wcgroup,
-    notes,
-    org,
-    status,
-    createdts
-  )
-  VALUES (
-    ${formattedAddr(i.address)},
-    ${pointLoc(i.address)},
-    ${latlong(i.address)},
-    '${i.name}',
-    'Clinician',
-    '${i.notes}',
-    '${o.org}',
-    'OPEN',
-    NOW()
-  )`;
+  INSERT INTO corps.workcenters (workcenter, createdts)
+    VALUES ('${i.name}', NOW())
+  ON CONFLICT (workcenter) DO NOTHING;
+  UPDATE corps.workcenters SET
+    address = ${formattedAddr(i.address)},
+    loc = ${pointLoc(i.address)},
+    latlong = ${latlong(i.address)},
+    wcgroup = 'Clinician',
+    notes = '${i.notes}',
+    org = '${o.org}',
+    status = 'OPEN'
+  `;
 }
 
 function buildDemandQuery(o, i, c) {
