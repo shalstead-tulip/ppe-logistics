@@ -119,12 +119,13 @@ function buildCustomerQuery(i, c) {
 
 function buildAddressQuery(i, c) {
   var addrs = [i.address, i.deliveryAddress, c.address];
-  var values = [];
+  var allValues = [];
   for (a of addrs) {
     if (a) {
-      values.push(`${addrValues(a, i.name, c.email)}`);
+      allValues.push(`${addrValues(a, i.name, c.email)}`);
     }
   }
+  const uniqueValues = new Set(allValues);
 
   return `
   INSERT INTO corps.addresses (
@@ -135,7 +136,7 @@ function buildAddressQuery(i, c) {
     tulipid
   )
   VALUES
-  ${values.join(",\n")}`;
+  ${[...uniqueValues].join(",\n")}`;
 }
 
 function buildWorkcenterQuery(o, i, c) {
