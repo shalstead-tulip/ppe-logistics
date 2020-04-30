@@ -100,7 +100,7 @@ function buildCustomerQuery(i, c) {
   return `
   INSERT INTO corps.customers (tulipid)
     VALUES (${tulipId(c.email)})
-  ON CONFLICT (tulipid) DO NOTHING;
+  ON CONFLICT DO NOTHING;
   UPDATE corps.customers SET
     affiliation = '${c.affiliation}',
     email = '${c.email}',
@@ -141,7 +141,7 @@ function buildWorkcenterQuery(o, i, c) {
   return `
   INSERT INTO corps.workcenters (workcenter, createdts)
     VALUES ('${i.name}', NOW())
-  ON CONFLICT (workcenter) DO NOTHING;
+  ON CONFLICT DO NOTHING;
   UPDATE corps.workcenters SET
     address = ${formattedAddr(i.address)},
     loc = ${pointLoc(i.address)},
@@ -150,56 +150,40 @@ function buildWorkcenterQuery(o, i, c) {
     notes = '${i.notes}',
     org = '${o.org}',
     status = 'OPEN'
+  WHERE workcenter = '${i.name}';
   `;
 }
 
 function buildDemandQuery(o, i, c) {
-  var values = [];
+  var queries = [];
   for (j = 0; j < o.lines.length; j++) {
     var l = o.lines[j];
-    var line = `
-    (
-      '${o.orderID}',
-      ${j + 1},
-      '${l.product}',
-      '${i.name}',
-      '${l.quantity}',
-      NOW(),
-      '${o.notes}',
-      '${o.orderStatus}',
-      '${o.org}',
-      '${o.externalID}',
-      'BACKLOG',
-      'BACKLOG',
-      'LAMBDA-' || '${c.email}',
-      ${formattedAddr(i.deliveryAddress)},
-      ${pointLoc(i.deliveryAddress)}
-    )`;
-    values.push(line);
+    const q = `
+    INSERT INTO corps.demands (orderid, orderline, createdts, org,
+        external_identifier, wolocation, process_status)
+      VALUES('${o.orderID}', ${j + 1}, NOW(), '${o.org}',
+        '${o.externalID}', 'BACKLOG', 'BACKLOG')
+    ON CONFLICT DO NOTHING;
+    UPDATE corps.demands SET
+      product = '${l.product}',
+      demandcenter = '${i.name}',
+      qty = '${l.quantity}',
+      notes = '${o.notes}',
+      order_status = '${o.orderStatus}',
+      alt_user = ${tulipId(c.email)},
+      alt_address = ${formattedAddr(i.deliveryAddress)},
+      alt_loc = ${pointLoc(i.deliveryAddress)}
+    WHERE orderid = '${o.orderID}'
+      AND orderline = ${j + 1}
+      AND org = '${o.org}'
+      AND external_identifier = '${o.externalID}';
+      `;
+    queries.push(q);
   }
-  return `
-  INSERT INTO corps.demands (
-    orderid,
-    orderline,
-    product,
-    demandcenter,
-    qty,
-    createdts,
-    notes,
-    order_status,
-    org,
-    external_identifier,
-    wolocation,
-    process_status,
-    alt_user,
-    alt_address,
-    alt_loc
-  )
-  VALUES
-  ${values.join(",")}`;
+  return queries.join("");
 }
 
-function createOrder(o) {
+function syncOrder(o) {
   console.log(">>> SYNC NEW RECORD TO PG");
   console.log("--> Prepped order:\n" + JSON.stringify(o, null, 2));
 
@@ -209,45 +193,45 @@ function createOrder(o) {
   const i = o.institution;
   const c = o.customer;
 
-  let insertCustomer;
-  let insertAddresses;
-  let insertWorkcenter;
-  let insertDemands;
+  let upsertCustomer;
+  let upsertAddresses;
+  let upsertWorkcenter;
+  let upsertDemands;
 
   try {
     // CUSTOMERS
-    insertCustomer = buildCustomerQuery(i, c);
-    console.log("--> CREATE CUSTOMER:", insertCustomer);
+    upsertCustomer = buildCustomerQuery(i, c);
+    console.log("--> UPSERT CUSTOMER:", upsertCustomer);
 
     // ADDRESSES
-    insertAddresses = buildAddressQuery(i, c);
-    console.log("--> CREATE ADDRESS:", insertAddresses);
+    upsertAddresses = buildAddressQuery(i, c);
+    console.log("--> UPSERT ADDRESSES:", upsertAddresses);
 
     // WORKCENTERS
-    insertWorkcenter = buildWorkcenterQuery(o, i, c);
-    console.log("--> CREATE WORKCENTER:", insertWorkcenter);
+    upsertWorkcenter = buildWorkcenterQuery(o, i, c);
+    console.log("--> UPSERT WORKCENTER:", upsertWorkcenter);
 
     // DEMANDS
     // TODO: default order_status to CSR-REVIEW if not provided
-    insertDemands = buildDemandQuery(o, i, c);
-    console.log("--> CREATE DEMANDS:", insertDemands);
+    upsertDemands = buildDemandQuery(o, i, c);
+    console.log("--> UPSERT DEMANDS:", upsertDemands);
   } catch (err) {
     throw `FAILED QUERY BUILDING DUE TO: ${err}`;
   }
 
   return dbClient
     .query("BEGIN")
-    .then((res) => dbClient.query(insertCustomer))
-    .then((res) => dbClient.query(insertAddresses))
-    .then((res) => dbClient.query(insertWorkcenter))
-    .then((res) => dbClient.query(insertDemands))
+    .then((res) => dbClient.query(upsertCustomer))
+    .then((res) => dbClient.query(upsertAddresses))
+    .then((res) => dbClient.query(upsertWorkcenter))
+    .then((res) => dbClient.query(upsertDemands))
     .then((res) => dbClient.query("COMMIT"))
     .then((res) => {
-      return "ORDER CREATION SUCCESS";
+      return "ORDER SYNC SUCCESS";
     })
     .catch((err) => {
       dbClient.query("ROLLBACK");
-      throw { type: "ROLLBACK", error: err };
+      throw { type: "ORDER SYNC FAILED", error: err };
     });
 
   // Test Query for validating PROD/DEV DB connections
@@ -427,7 +411,7 @@ exports.handler = async (event, context) => {
   return decrypt("PG_PWD_" + env)
     .then((pwd) => getDBClient(pwd, env))
     .then((res) => enrichAddresses(order))
-    .then((o) => createOrder(o))
+    .then((o) => syncOrder(o))
     .then((res) => successCallback(res))
     .catch((error) => failureCallback(error));
 };
