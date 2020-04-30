@@ -319,8 +319,6 @@ function fetchAddress(rawAddress) {
 }
 
 // Add latitude/longitude to addresses via google geocode API
-// TODO: only enriches institution.address, add institution.deliveryAddress and
-//   customer.address
 function enrichAddresses(o) {
   return fetchAddress(o.institution.address)
     .then((addr) => {
