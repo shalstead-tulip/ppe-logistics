@@ -355,6 +355,9 @@ const getContent = function (url) {
 };
 
 function fetchAddress(rawAddress) {
+  if (!rawAddress) {
+    return null;
+  }
   console.log(`--> fetching geo info for address: "${rawAddress}"`);
   const paramAddress = rawAddress.replace(" ", "+");
 
@@ -380,7 +383,12 @@ function fetchAddress(rawAddress) {
   return getContent(requestUrl.href)
     .then((res) => {
       console.log(`--> response: ${res}`);
-      return JSON.parse(res).results[0];
+      const addr = JSON.parse(res).results[0];
+      return {
+        formatted_address: addr.formatted_address,
+        lat: addr.geometry.location.lat,
+        long: addr.geometry.location.lng,
+      };
     })
     .catch((err) => console.error(err));
 }
@@ -389,14 +397,21 @@ function fetchAddress(rawAddress) {
 // TODO: only enriches institution.address, add institution.deliveryAddress and
 //   customer.address
 function enrichAddresses(o) {
-  return fetchAddress(o.institution.address).then((addr) => {
-    o.institution.address = {
-      formatted_address: addr.formatted_address,
-      lat: addr.geometry.location.lat,
-      long: addr.geometry.location.lng,
-    };
-    return o;
-  });
+  return fetchAddress(o.institution.address)
+    .then((addr) => {
+      o.institution.address = addr;
+    })
+    .then((res) => fetchAddress(o.institution.deliveryAddress))
+    .then((addr) => {
+      o.institution.deliveryAddress = addr;
+    })
+    .then((res) => fetchAddress(o.customer.address))
+    .then((addr) => {
+      o.customer.address = addr;
+    })
+    .then((res) => {
+      return o;
+    });
 }
 
 // TODO: encrypt google API key
