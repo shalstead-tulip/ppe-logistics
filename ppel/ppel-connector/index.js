@@ -85,13 +85,6 @@ function latlong(address) {
   return `'${address.lat},${address.long}'`;
 }
 
-// Format values for insert to addresses table
-function addrValues(a, name, email) {
-  return `(${formattedAddr(a)},${pointLoc(a)},${latlong(
-    a
-  )},'${name}','LAMBDA-' || '${email}')`;
-}
-
 function tulipId(email) {
   return `'LAMBDA-' || '${email}'`;
 }
@@ -115,26 +108,31 @@ function buildCustomerQuery(i, c) {
   `;
 }
 
-function buildAddressQuery(i, c) {
+// Build upsert query for single address
+function addrQuery(a, name, email) {
+  return `
+  INSERT INTO corps.addresses (hospital, tulipid, address, address_loc, latlong)
+  SELECT
+    '${name}', ${tulipId(email)}, ${formattedAddr(a)},
+    ${pointLoc(a)}, ${latlong(a)}
+  WHERE NOT EXISTS (
+    SELECT tulipid FROM corps.addresses
+    WHERE tulipid = ${tulipId(email)}
+      AND hospital = '${name}'
+      AND address = ${formattedAddr(a)}
+  );`;
+}
+
+function buildAddressesQuery(i, c) {
   var addrs = [i.address, i.deliveryAddress, c.address];
-  var allValues = [];
+  var queries = [];
   for (a of addrs) {
     if (a) {
-      allValues.push(`${addrValues(a, i.name, c.email)}`);
+      queries.push(addrQuery(a, i.name, c.email));
     }
   }
-  const uniqueValues = new Set(allValues);
 
-  return `
-  INSERT INTO corps.addresses (
-    address,
-    address_loc,
-    latlong,
-    hospital,
-    tulipid
-  )
-  VALUES
-  ${[...uniqueValues].join(",\n")}`;
+  return queries.join("");
 }
 
 function buildWorkcenterQuery(o, i, c) {
@@ -204,7 +202,7 @@ function syncOrder(o) {
     console.log("--> UPSERT CUSTOMER:", upsertCustomer);
 
     // ADDRESSES
-    upsertAddresses = buildAddressQuery(i, c);
+    upsertAddresses = buildAddressesQuery(i, c);
     console.log("--> UPSERT ADDRESSES:", upsertAddresses);
 
     // WORKCENTERS
