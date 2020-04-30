@@ -92,32 +92,27 @@ function addrValues(a, name, email) {
   )},'${name}','LAMBDA-' || '${email}')`;
 }
 
+function tulipId(email) {
+  return `'LAMBDA-' || '${email}'`;
+}
+
 function buildCustomerQuery(i, c) {
   return `
-  INSERT INTO corps.customers (
-    affiliation,
-    email,
-    fullname,
-    hospital,
-    hospital_address,
-    phone_number,
-    notes,
-    tulipid,
-    legalaccept,
-    delivery_address
-  )
-  VALUES (
-    '${c.affiliation}',
-    '${c.email}',
-    '${c.fullName}',
-    '${i.name}',
-    ${formattedAddr(i.address)},
-    '${c.phone}',
-    '${c.notes}',
-    'LAMBDA-' || '${c.email}',
-    '${c.legalStatus}',
-    ${formattedAddr(c.address)}
-  )`;
+  INSERT INTO corps.customers (tulipid)
+    VALUES (${tulipId(c.email)})
+  ON CONFLICT (tulipid) DO NOTHING;
+  UPDATE corps.customers SET
+    affiliation = '${c.affiliation}',
+    email = '${c.email}',
+    fullname = '${c.fullName}',
+    hospital = '${i.name}',
+    hospital_address = ${formattedAddr(i.address)},
+    phone_number = '${c.phone}',
+    notes = '${c.notes}',
+    legalaccept = '${c.legalStatus}',
+    delivery_address = ${formattedAddr(c.address)}
+  WHERE tulipid = ${tulipId(c.email)};
+  `;
 }
 
 function buildAddressQuery(i, c) {
