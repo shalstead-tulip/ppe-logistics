@@ -1,11 +1,16 @@
 const AWS = require("aws-sdk");
 const pg = require("pg");
 const { WebClient } = require("@slack/web-api");
+const https = require("https");
+const url = require("url");
 
 const slack = new WebClient(process.env.SLACK_TOKEN);
 
 // Define context as a global variable for the pod to make getting logs easier
 let podContext;
+
+// Define global variable to store database client
+let dbClient;
 
 function decrypt(env_var) {
   const kms = new AWS.KMS();
@@ -21,18 +26,71 @@ function decrypt(env_var) {
     });
 }
 
-function createOrder(dbClient, o) {
-  console.log(">>> SYNC NEW RECORD TO PG");
+function getDBClient(pwd, env) {
+  if (env == "DEV") {
+    console.log("CONNECTING TO DEV DB");
+    dbClient = new pg.Client({
+      host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
+      port: 5432,
+      user: "tulip",
+      password: pwd,
+      database: "maskson_sfdc_dev",
+    });
+  } else if (env == "PROD") {
+    console.log("CONNECTING TO PROD DB");
+    dbClient = new pg.Client({
+      host: "three-d-corps-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
+      port: 5432,
+      user: "tulip",
+      password: pwd,
+      database: "three_d_corps",
+    });
+  }
 
-  // TODO: add call to google geocoding API
-  // we want address_loc and latlong updated in both workcenters and addresses, correct?
-  // and alt_loc on demands
+  dbClient.connect();
 
-  // TODO: run this sanitization on all strings
-  o.institution.name = o.institution.name.replace("'", "''");
+  return dbClient;
+}
 
-  // CUSTOMERS
-  const insertCustomer = `
+function formattedAddr(address) {
+  if (!address) {
+    return "NULL";
+  }
+  if (!address.formatted_address) {
+    return `'${address}'`;
+  }
+  return `'${address.formatted_address}'`;
+}
+
+function pointLoc(address) {
+  if (!address) {
+    return "NULL";
+  }
+  if (!address.lat) {
+    return "NULL";
+  }
+  return `'POINT (${address.long} ${address.lat})'`;
+}
+
+function latlong(address) {
+  if (!address) {
+    return "NULL";
+  }
+  if (!address.lat) {
+    return "NULL";
+  }
+  return `'${address.lat},${address.long}'`;
+}
+
+// Format values for insert to addresses table
+function addrValues(a, name, email) {
+  return `(${formattedAddr(a)},${pointLoc(a)},${latlong(
+    a
+  )},'${name}','LAMBDA-' || '${email}')`;
+}
+
+function buildCustomerQuery(i, c) {
+  return `
   INSERT INTO corps.customers (
     affiliation,
     email,
@@ -46,43 +104,46 @@ function createOrder(dbClient, o) {
     delivery_address
   )
   VALUES (
-    '${o.customer.affiliation}',
-    '${o.customer.email}',
-    '${o.customer.fullName}',
-    '${o.institution.name}',
-    '${o.institution.address}',
-    '${o.customer.phone}',
-    '${o.customer.notes}',
-    'LAMBDA-' || '${o.customer.email}',
-    '${o.customer.legalStatus}',
-    '${o.customer.address}'
+    '${c.affiliation}',
+    '${c.email}',
+    '${c.fullName}',
+    '${i.name}',
+    ${formattedAddr(i.address)},
+    '${c.phone}',
+    '${c.notes}',
+    'LAMBDA-' || '${c.email}',
+    '${c.legalStatus}',
+    ${formattedAddr(c.address)}
   )`;
+}
 
-  // ADDRESSES
-  // TODO: Add all addresses
-  var insertAddress = `
+function buildAddressQuery(i, c) {
+  var addrs = [i.address, i.deliveryAddress, c.address];
+  var values = [];
+  for (a of addrs) {
+    if (a) {
+      values.push(`${addrValues(a, i.name, c.email)}`);
+    }
+  }
+
+  return `
   INSERT INTO corps.addresses (
     address,
+    address_loc,
+    latlong,
     hospital,
     tulipid
   )
   VALUES
-  ('${o.institution.address}','${o.institution.name}','LAMBDA-' || '${o.customer.email}'),`;
+  ${values.join(",\n")}`;
+}
 
-  if (
-    o.institution.deliveryAddress &&
-    o.institution.deliveryAddress != o.institution.address
-  ) {
-    insertAddress = `${insertAddress}
-    ('${o.institution.deliveryAddress}','${o.institution.name}','LAMBDA-' || '${o.customer.email}'),`;
-  }
-  insertAddress = `${insertAddress}
-    ('${o.customer.address}','${o.institution.name}','LAMBDA-' || '${o.customer.email}')`;
-
-  // WORKCENTERS
-  const insertWorkcenter = `
+function buildWorkcenterQuery(o, i, c) {
+  return `
   INSERT INTO corps.workcenters (
     address,
+    loc,
+    latlong,
     workcenter,
     wcgroup,
     notes,
@@ -91,18 +152,43 @@ function createOrder(dbClient, o) {
     createdts
   )
   VALUES (
-    '${o.institution.address}',
-    '${o.institution.name}',
+    ${formattedAddr(i.address)},
+    ${pointLoc(i.address)},
+    ${latlong(i.address)},
+    '${i.name}',
     'Clinician',
-    '${o.institution.notes}',
+    '${i.notes}',
     '${o.org}',
     'OPEN',
     NOW()
   )`;
+}
 
-  // DEMANDS
-  // TODO: default order_status to CSR-REVIEW if not provided
-  var insertDemands = `
+function buildDemandQuery(o, i, c) {
+  var values = [];
+  for (j = 0; j < o.lines.length; j++) {
+    var l = o.lines[j];
+    var line = `
+    (
+      '${o.orderID}',
+      ${j + 1},
+      '${l.product}',
+      '${i.name}',
+      '${l.quantity}',
+      NOW(),
+      '${o.notes}',
+      '${o.orderStatus}',
+      '${o.org}',
+      '${o.externalID}',
+      'BACKLOG',
+      'BACKLOG',
+      'LAMBDA-' || '${c.email}',
+      ${formattedAddr(i.deliveryAddress)},
+      ${pointLoc(i.deliveryAddress)}
+    )`;
+    values.push(line);
+  }
+  return `
   INSERT INTO corps.demands (
     orderid,
     orderline,
@@ -117,45 +203,53 @@ function createOrder(dbClient, o) {
     wolocation,
     process_status,
     alt_user,
-    alt_address
+    alt_address,
+    alt_loc
   )
-  VALUES`;
+  VALUES
+  ${values.join(",")}`;
+}
 
-  for (i = 0; i < o.lines.length; i++) {
-    var l = o.lines[i];
-    console.log(l);
-    var line = `
-    (
-      '${o.orderID}',
-      ${i + 1},
-      '${l.product}',
-      '${o.institution.name}',
-      '${l.quantity}',
-      NOW(),
-      '${o.notes}',
-      '${o.orderStatus}',
-      '${o.org}',
-      '${o.externalID}',
-      'BACKLOG',
-      'BACKLOG',
-      'LAMBDA-' || '${o.customer.email}',
-      '${o.institution.deliveryAddress}'
-    )`;
-    if (i > 0) {
-      insertDemands = `${insertDemands},`;
-    }
-    insertDemands = `${insertDemands}${line}`;
+function createOrder(o) {
+  console.log(">>> SYNC NEW RECORD TO PG");
+  console.log("--> Prepped order:\n" + JSON.stringify(o, null, 2));
+
+  // TODO: run this sanitization on all strings
+  o.institution.name = o.institution.name.replace("'", "''");
+
+  const i = o.institution;
+  const c = o.customer;
+
+  let insertCustomer;
+  let insertAddresses;
+  let insertWorkcenter;
+  let insertDemands;
+
+  try {
+    // CUSTOMERS
+    insertCustomer = buildCustomerQuery(i, c);
+    console.log("--> CREATE CUSTOMER:", insertCustomer);
+
+    // ADDRESSES
+    insertAddresses = buildAddressQuery(i, c);
+    console.log("--> CREATE ADDRESS:", insertAddresses);
+
+    // WORKCENTERS
+    insertWorkcenter = buildWorkcenterQuery(o, i, c);
+    console.log("--> CREATE WORKCENTER:", insertWorkcenter);
+
+    // DEMANDS
+    // TODO: default order_status to CSR-REVIEW if not provided
+    insertDemands = buildDemandQuery(o, i, c);
+    console.log("--> CREATE DEMANDS:", insertDemands);
+  } catch (err) {
+    throw `FAILED QUERY BUILDING DUE TO: ${err}`;
   }
-
-  console.log("--> CREATE CUSTOMER:", insertCustomer);
-  console.log("--> CREATE ADDRESS:", insertAddress);
-  console.log("--> CREATE WORKCENTER:", insertWorkcenter);
-  console.log("--> CREATE DEMANDS:", insertDemands);
 
   return dbClient
     .query("BEGIN")
     .then((res) => dbClient.query(insertCustomer))
-    .then((res) => dbClient.query(insertAddress))
+    .then((res) => dbClient.query(insertAddresses))
     .then((res) => dbClient.query(insertWorkcenter))
     .then((res) => dbClient.query(insertDemands))
     .then((res) => dbClient.query("COMMIT"))
@@ -217,32 +311,7 @@ function successCallback(res) {
   return response;
 }
 
-function getDBClient(pwd, env) {
-  if (env == "DEV") {
-    console.log("CONNECTING TO DEV DB");
-    dbClient = new pg.Client({
-      host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-      port: 5432,
-      user: "tulip",
-      password: pwd,
-      database: "maskson_sfdc_dev",
-    });
-  } else if (env == "PROD") {
-    console.log("CONNECTING TO PROD DB");
-    dbClient = new pg.Client({
-      host: "three-d-corps-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-      port: 5432,
-      user: "tulip",
-      password: pwd,
-      database: "three_d_corps",
-    });
-  }
-
-  dbClient.connect();
-
-  return dbClient;
-}
-
+// Helper function to "flatten" salesforce address objects
 function flattenA(a) {
   if (!a) {
     return a;
@@ -260,8 +329,80 @@ function parseSFAddresses(o) {
   return o;
 }
 
+// Helper function to promise-ify node request functionality
+const getContent = function (url) {
+  // return new pending promise
+  return new Promise((resolve, reject) => {
+    // select http or https module, depending on reqested url
+    const lib = url.startsWith("https") ? require("https") : require("http");
+    const request = lib.get(url, (response) => {
+      // handle http errors
+      if (response.statusCode < 200 || response.statusCode > 299) {
+        reject(
+          new Error("Failed to load page, status code: " + response.statusCode)
+        );
+      }
+      // temporary data holder
+      const body = [];
+      // on every content chunk, push it to the data array
+      response.on("data", (chunk) => body.push(chunk));
+      // we are done, resolve promise with those joined chunks
+      response.on("end", () => resolve(body.join("")));
+    });
+    // handle connection errors of the request
+    request.on("error", (err) => reject(err));
+  });
+};
+
+function fetchAddress(rawAddress) {
+  console.log(`--> fetching geo info for address: "${rawAddress}"`);
+  const paramAddress = rawAddress.replace(" ", "+");
+
+  const requestUrl = url.parse(
+    url.format({
+      protocol: "https",
+      hostname: "maps.googleapis.com",
+      pathname: "/maps/api/geocode/json",
+      query: {
+        address: paramAddress,
+        key: process.env.GOOGLE_MAPS_API_KEY,
+      },
+    })
+  );
+
+  const options = {
+    hostname: requestUrl.hostname,
+    port: 443,
+    path: requestUrl.path,
+    method: "GET",
+  };
+
+  return getContent(requestUrl.href)
+    .then((res) => {
+      console.log(`--> response: ${res}`);
+      return JSON.parse(res).results[0];
+    })
+    .catch((err) => console.error(err));
+}
+
+// Add latitude/longitude to addresses via google geocode API
+// TODO: only enriches institution.address, add institution.deliveryAddress and
+//   customer.address
+function enrichAddresses(o) {
+  return fetchAddress(o.institution.address).then((addr) => {
+    o.institution.address = {
+      formatted_address: addr.formatted_address,
+      lat: addr.geometry.location.lat,
+      long: addr.geometry.location.lng,
+    };
+    return o;
+  });
+}
+
+// TODO: encrypt google API key
 exports.handler = async (event, context) => {
   console.log("NEW EVENT:", event);
+  console.log();
   podContext = context;
 
   const env = event.stageVariables.environment;
@@ -281,7 +422,8 @@ exports.handler = async (event, context) => {
 
   return decrypt("PG_PWD_" + env)
     .then((pwd) => getDBClient(pwd, env))
-    .then((dbClient) => createOrder(dbClient, order))
+    .then((res) => enrichAddresses(order))
+    .then((o) => createOrder(o))
     .then((res) => successCallback(res))
     .catch((error) => failureCallback(error));
 };
