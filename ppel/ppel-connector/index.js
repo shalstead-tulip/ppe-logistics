@@ -25,6 +25,8 @@ function createOrder(dbClient, o) {
   console.log(">>> SYNC NEW RECORD TO PG");
 
   // TODO: add call to google geocoding API
+  // we want address_loc and latlong updated in both workcenters and addresses, correct?
+  // and alt_loc on demands
 
   // TODO: run this sanitization on all strings
   o.institution.name = o.institution.name.replace("'", "''");
@@ -241,6 +243,23 @@ function getDBClient(pwd, env) {
   return dbClient;
 }
 
+function flattenA(a) {
+  if (!a) {
+    return a;
+  }
+  return `${a.street}, ${a.city}, ${a.state} ${a.postalCode} ${a.country}`.replace(
+    "null",
+    ""
+  );
+}
+
+function parseSFAddresses(o) {
+  console.log("--> Reformatting addresses for order from Salesforce");
+  o.institution.address = flattenA(o.institution.address);
+  o.institution.deliveryAddress = flattenA(o.institution.deliveryAddress);
+  return o;
+}
+
 exports.handler = async (event, context) => {
   console.log("NEW EVENT:", event);
   podContext = context;
@@ -254,9 +273,15 @@ exports.handler = async (event, context) => {
     return failureCallback("Invalid bearer token");
   }
 
+  var order = JSON.parse(event.body);
+
+  if (event.resource == "/order/salesforce") {
+    order = parseSFAddresses(order);
+  }
+
   return decrypt("PG_PWD_" + env)
     .then((pwd) => getDBClient(pwd, env))
-    .then((dbClient) => createOrder(dbClient, JSON.parse(event.body)))
+    .then((dbClient) => createOrder(dbClient, order))
     .then((res) => successCallback(res))
     .catch((error) => failureCallback(error));
 };
