@@ -10,8 +10,8 @@ let dbClient;
 const env = "DEV";
 
 // Salesforce Connection Info
-const username = "steven.halstead+maskson@tulip.co.tulipdev1";
-const password = SECRETS.SF_PWD;
+const SF_USER = "steven.halstead+maskson@tulip.co.tulipdev1";
+const SFDC_PWD = SECRETS.SF_PWD;
 const securityToken = SECRETS.SF_SEC_TOK;
 
 const sfConn = new jsforce.Connection({
@@ -69,6 +69,16 @@ const syncMap = {
       notes: "Delivery_Notes__c",
     },
   },
+};
+
+// Map PPEL order statuses to Salesforce order statuses
+const ppelOrderStatusMap = {
+  CART: "CSR Review",
+  REVIEW: "CSR Review",
+  "CSR-REVIEW": "CSR Review",
+  OPEN: "Open",
+  CLOSED: "Cancelled",
+  HOLD: "On Hold",
 };
 
 function listQueryFields(fieldMap) {
@@ -215,32 +225,49 @@ function printRecords() {
 // ${listQueryFields(FIELD_MAP)}
 // Query the product db.
 var query_text = `
+WITH orders AS
+(
+	SELECT
+		external_identifier,
+		FIRST(order_status) AS order_status,
+		FIRST(process_status) AS process_status,
+		FIRST(t.status) AS transport_status,
+		FIRST(t.trackingnumber) AS trackingnumber
+	FROM corps.demands d
+	LEFT JOIN corps.transport t
+		ON d.uid = t.wo
+	WHERE org = 'MasksOn'
+		AND external_identifier IS NOT NULL
+		AND external_identifier NOT IN ('','undefined')
+	GROUP BY external_identifier
+)
+,
+sfdc_orders AS
+(
+	SELECT
+		external_identifier AS id,
+		trackingnumber AS ccrz__ExtShipTrackNo__c,
+		(CASE
+			WHEN order_status = 'CART' THEN 'CSR Review'
+			WHEN order_status = 'REVIEW' THEN 'CSR Review'
+			WHEN order_status = 'CSR-REVIEW' THEN 'CSR Review'
+			WHEN order_status = 'OPEN' THEN 'Open'
+			WHEN order_status = 'HOLD' THEN 'On Hold'
+			WHEN (order_status = 'CLOSED'
+					AND process_status = 'DELIVERED'
+					AND transport_status = 'DELIVERED')
+				THEN 'Shipped'
+			WHEN order_status = 'CLOSED' THEN 'Cancelled'
+			ELSE 'Open'
+		END) AS ccrz__OrderStatus__c
+	FROM orders
+)
 SELECT
   *
-FROM
-corps.demands
-WHERE
-LIMIT 5
+FROM sfdc_orders;
 `;
 
 console.log(query_text);
-
-function fetchInstances() {
-  return dbClient
-    .connect()
-    .then((res) => dbClient.query(query_text))
-    .then((res) => printRows(res))
-    .then((res) => saveRecords(res.rows))
-    .catch(failureCallback)
-    .then((res) => dbClient.end());
-}
-
-function runBatch() {
-  return sfConn
-    .login(sb_username, sb_password + sb_security_token)
-    .then((res) => batchUpsert(test_instances_3))
-    .catch(failureCallback);
-}
 
 function fetchAndLoad() {
   getDBClient(SECRETS.PG_PWD, env);
@@ -248,9 +275,7 @@ function fetchAndLoad() {
     .query(query_text)
     .then((res) => saveRecords(res.rows))
     .then((res) => printRecordsRaw())
-    .then((res) => printRecords())
-    // .then(res => sfConn.login(sb_username, sb_password + sb_security_token)) // SANDBOX
-    //.then((res) => sfConn.login(sf_username, sf_password + sf_security_token)) // PROD
+    .then(res => sfConn.login(SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK))
     //.then((res) => batchUpsert(instanceRecords))
     .catch(failureCallback)
     .then((res) => dbClient.end());
