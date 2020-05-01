@@ -255,7 +255,7 @@ function parseSFAddresses(o) {
 }
 
 // Map Salesforce order statuses to PPEL order statuses
-const orderStatusMap = {
+const sfdcOrderStatusMap = {
   "CSR Review": "CSR-REVIEW",
   Open: "OPEN",
   "Order Submitted": "OPEN",
@@ -419,7 +419,7 @@ exports.handler = async (event, context) => {
 
   if (event.resource == "/order/salesforce") {
     order = parseSFAddresses(order);
-    order.orderStatus = orderStatusMap[order.orderStatus];
+    order.orderStatus = sfdcOrderStatusMap[order.orderStatus];
   }
 
   return decrypt("PG_PWD_" + env)
