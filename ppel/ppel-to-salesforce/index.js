@@ -54,8 +54,6 @@ function failureCallback(error) {
 
 let orderRecords;
 
-let jobResults;
-
 function orderInfo(i) {
   var record = orderRecords[i];
   return `${record.ccrz__orderstatus__c} - ${record.ccrz__extshiptrackno__c}`;
@@ -74,41 +72,50 @@ function logResult(rets, i) {
 /////////////////////
 // Run a bulk insert
 /////////////////////
+let job;
 
-function batchUpsert(orders) {
+function batchUpdate(orders) {
   console.log(">>> runBatch");
   // Create job and batch
   console.log("--> Create job and batch");
-  var job = sfConn.bulk.createJob("ccrz__E_Order__c", "update");
+  job = sfConn.bulk.createJob("ccrz__E_Order__c", "update");
   var batch = job.createBatch();
   // start job
   console.log("--> start job");
   batch.execute(orders);
-  // listen for events
-  console.log("--> listen for events");
-  batch.on("error", function (batchInfo) {
-    // fired when batch request is queued in server.
-    console.log("Error, batchInfo:", batchInfo);
+
+  return new Promise(function (resolve, reject) {
+    batch.on("queue", function (batchInfo) {
+      batchId = batchInfo.id;
+      var batch = job.batch(batchId);
+      batch.on("response", function (res) {
+        resolve(res);
+      });
+      batch.on("error", function (err) {
+        reject(err);
+      });
+      batch.poll(1000, 20 * 1000);
+    });
   });
-  batch.on("queue", function (batchInfo) {
-    // fired when batch request is queued in server.
-    console.log("queue, batchInfo:", batchInfo);
-    batch.poll(1000 /* interval(ms) */, 20000 /* timeout(ms) */); // start polling - Do not poll until the batch has started
-  });
-  batch.on("response", function (rets) {
-    // fired when batch finished and result retrieved
-    console.log("--> batch finished results retrieved");
-    jobResults = rets;
-    console.log("--> Results:");
-    for (var i = 0; i < rets.length; i++) {
-      logResult(rets, i);
-    }
-    console.log("--> close job, logout connection");
-    job
-      .close()
-      .then((jobInfo) => console.log("--> Job Summary <--\n", jobInfo))
-      .then((res) => sfConn.logout());
-  });
+}
+
+function reportResults(rets) {
+  // fired when batch finished and result retrieved
+  console.log("--> batch finished results retrieved");
+  console.log("--> Results:");
+  for (var i = 0; i < rets.length; i++) {
+    logResult(rets, i);
+  }
+  console.log("--> close job, logout connection");
+
+  return job
+    .close()
+    .then((jobInfo) => console.log("--> Job Summary <--\n", jobInfo))
+    .then((res) => sfConn.logout());
+}
+
+function failedBatch(err) {
+  console.log("Error, batchInfo:", err);
 }
 
 function saveResults(res) {
@@ -171,16 +178,17 @@ FROM sfdc_orders;
 `;
 
 exports.handler = async (event, context) => {
-  return (
-    decrypt("PG_PWD")
-      .then((res) => getDBClient())
-      .then((res) => dbClient.query(query_text))
-      .then((res) => saveResults(res))
-      // .then((res) =>
-      //   sfConn.login(process.env.SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK)
-      // )
-      // .then((res) => batchUpsert(orderRecords))
-      // .catch(failureCallback)
-      .then((res) => dbClient.end())
-  );
+  return decrypt("PG_PWD")
+    .then((res) => decrypt("SF_PWD"))
+    .then((res) => decrypt("SF_SEC_TOK"))
+    .then((res) => getDBClient())
+    .then((res) => dbClient.query(query_text))
+    .then((res) => saveResults(res))
+    .then((res) =>
+      sfConn.login(process.env.SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK)
+    )
+    .then((res) => batchUpdate(orderRecords))
+    .then(reportResults, failedBatch)
+    .catch(failureCallback)
+    .then((res) => dbClient.end());
 };
