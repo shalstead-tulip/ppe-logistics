@@ -1,3 +1,4 @@
+const AWS = require("aws-sdk");
 const jsforce = require("jsforce");
 const pg = require("pg");
 
@@ -110,14 +111,15 @@ function batchUpsert(orders) {
   });
 }
 
-function saveRecords(records) {
-  orderRecords = records;
-  return orderRecords;
-}
+function saveResults(res) {
+  console.log(">>> QUERY RESULTS");
+  console.log(res);
 
-function printRecordsRaw() {
+  orderRecords = res.rows;
+
+  console.log("--> Records returned by query:");
   console.log(orderRecords);
-  return;
+  return orderRecords;
 }
 
 //////////////////////////////
@@ -168,22 +170,17 @@ SELECT
 FROM sfdc_orders;
 `;
 
-console.log(query_text);
-
-function fetchAndLoad() {
-  getDBClient();
-  dbClient
-    .query(query_text)
-    .then((res) => saveRecords(res.rows))
-    .then((res) => printRecordsRaw())
-    .then((res) =>
-      sfConn.login(process.env.SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK)
-    )
-    .then((res) => batchUpsert(orderRecords))
-    .catch(failureCallback)
-    .then((res) => dbClient.end());
-}
-
 exports.handler = async (event, context) => {
-  return fetchAndLoad();
+  return (
+    decrypt("PG_PWD")
+      .then((res) => getDBClient())
+      .then((res) => dbClient.query(query_text))
+      .then((res) => saveResults(res))
+      // .then((res) =>
+      //   sfConn.login(process.env.SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK)
+      // )
+      // .then((res) => batchUpsert(orderRecords))
+      // .catch(failureCallback)
+      .then((res) => dbClient.end())
+  );
 };
