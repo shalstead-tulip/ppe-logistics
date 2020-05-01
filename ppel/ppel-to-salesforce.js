@@ -45,32 +45,6 @@ function getDBClient(pwd, env) {
   return dbClient;
 }
 
-const syncMap = {
-  demands: {
-    object: "ccrz__E_Order__c",
-    fields: {
-      notes: "ccrz__Note__c",
-      uid: "tulip_Internal_Order_ID__c",
-      process_status: "tulip_Process_Status__c",
-      order_status: "tulip_Order_Status__c",
-    },
-  },
-  transport: {
-    object: "ccrz__E_Order__c",
-    fields: {
-      notes: "tulip_Order_Notes__c",
-      trackingnumber: "ccrz__ExtShipTrackNo__c",
-      status: "tulip_Shipping_Status__c",
-    },
-  },
-  workcenters: {
-    object: "Account",
-    fields: {
-      notes: "Delivery_Notes__c",
-    },
-  },
-};
-
 // Map PPEL order statuses to Salesforce order statuses
 const ppelOrderStatusMap = {
   CART: "CSR Review",
@@ -115,60 +89,38 @@ function failureCallback(error) {
   console.error("Error: " + error);
 }
 
-/////////////////////
-// Run a bulk insert
-/////////////////////
-var test_instances_1 = [
-  {
-    Name: "bagel-1",
-    domain__c: "tulip.co",
-    deployment_id__c: "11101",
-    category__c: "SOIL",
-  },
-  {
-    Name: "bagel-2",
-    domain__c: "tulip.co",
-    deployment_id__c: "11102",
-    category__c: "SOIL",
-  },
-  {
-    Name: "bagel-3",
-    domain__c: "tulip.co",
-    deployment_id__c: "11103",
-    category__c: "SOIL",
-  },
-];
-
 let orderRecords;
 
 let jobResults;
 
-function instanceInfo(i) {
-  var record = instanceRecords[i];
-  return `${record.deployment_id__c} - ${record.name}`;
+function orderInfo(i) {
+  var record = orderRecords[i];
+  return `${record.ccrz__orderstatus__c} - ${record.ccrz__extshiptrackno__c}`;
 }
 
 function logResult(rets, i) {
   if (rets[i].success) {
-    // console.log(`#${(i + 1)} SUCCESS: sf_id = ${rets[i].id} [${instanceInfo(i)}]`);
+    console.log(`#${i + 1} SUCCESS: sf_id ${rets[i].id} [${orderInfo(i)}]`);
   } else {
     console.log(
-      `#${i + 1} ERROR: ${rets[i].errors.join(", ")} [${instanceInfo(i)}]`
+      `#${i + 1} ERROR: ${rets[i].errors.join(", ")} [${orderInfo(i)}]`
     );
   }
 }
 
-function batchUpsert(instances) {
+/////////////////////
+// Run a bulk insert
+/////////////////////
+
+function batchUpsert(orders) {
   console.log(">>> runBatch");
   // Create job and batch
   console.log("--> Create job and batch");
-  var job = sfConn.bulk.createJob("tulip_instance__c", "upsert", {
-    extIdField: "deployment_id__c",
-  });
+  var job = sfConn.bulk.createJob("ccrz__E_Order__c", "update");
   var batch = job.createBatch();
   // start job
   console.log("--> start job");
-  batch.execute(instances);
+  batch.execute(orders);
   // listen for events
   console.log("--> listen for events");
   batch.on("error", function (batchInfo) {
@@ -203,18 +155,6 @@ function saveRecords(records) {
 
 function printRecordsRaw() {
   console.log(orderRecords);
-  return;
-}
-
-function printOrderInfo(record) {
-  console.log(
-    `${record.orderid} - ${record.orderline} - ${record.product} - ${record.qty}`
-  );
-}
-
-function printRecords() {
-  console.log("--> ORDERS <--");
-  orderRecords.forEach(printOrderInfo);
   return;
 }
 
@@ -275,13 +215,10 @@ function fetchAndLoad() {
     .query(query_text)
     .then((res) => saveRecords(res.rows))
     .then((res) => printRecordsRaw())
-    .then(res => sfConn.login(SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK))
-    //.then((res) => batchUpsert(instanceRecords))
+    .then((res) => sfConn.login(SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK))
+    .then((res) => batchUpsert(orderRecords))
     .catch(failureCallback)
     .then((res) => dbClient.end());
 }
 
-// listQueryFields(FIELD_MAP);
-// fetchInstances().then(res => printRecords());
-// runBatch();
 fetchAndLoad();
