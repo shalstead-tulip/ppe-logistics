@@ -1,7 +1,22 @@
 const jsforce = require("jsforce");
 const pg = require("pg");
 
-const { SECRETS } = require("./local-secrets.js");
+var SECRETS = {};
+
+function decrypt(env_var) {
+  const kms = new AWS.KMS();
+
+  console.log("Decrypting key: " + env_var);
+  return kms
+    .decrypt({
+      CiphertextBlob: new Buffer.from(process.env[env_var], "base64"),
+    })
+    .promise()
+    .then((res) => {
+      SECRETS[env_var] = res.Plaintext.toString("ascii");
+      return SECRETS[env_var];
+    });
+}
 
 // Define global variable to store database client
 let dbClient;
@@ -11,78 +26,25 @@ const env = "DEV";
 
 // Salesforce Connection Info
 const SF_USER = "steven.halstead+maskson@tulip.co.tulipdev1";
-const SFDC_PWD = SECRETS.SF_PWD;
-const securityToken = SECRETS.SF_SEC_TOK;
 
 const sfConn = new jsforce.Connection({
   // uncomment below for sandbox
   loginUrl: "https://test.salesforce.com",
 });
 
-function getDBClient(pwd, env) {
-  if (env == "DEV") {
-    console.log("CONNECTING TO DEV DB");
-    dbClient = new pg.Client({
-      host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-      port: 5432,
-      user: "tulip",
-      password: pwd,
-      database: "maskson_sfdc_dev",
-    });
-  } else if (env == "PROD") {
-    // console.log("CONNECTING TO PROD DB");
-    // dbClient = new pg.Client({
-    //   host: "three-d-corps-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-    //   port: 5432,
-    //   user: "tulip",
-    //   password: pwd,
-    //   database: "three_d_corps",
-    // });
-  }
+function getDBClient() {
+  console.log("CONNECTING TO DEV DB");
+  dbClient = new pg.Client({
+    host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
+    port: 5432,
+    user: "tulip",
+    password: SECRETS.PG_PWD,
+    database: "maskson_sfdc_dev",
+  });
 
   dbClient.connect();
 
   return dbClient;
-}
-
-// Map PPEL order statuses to Salesforce order statuses
-const ppelOrderStatusMap = {
-  CART: "CSR Review",
-  REVIEW: "CSR Review",
-  "CSR-REVIEW": "CSR Review",
-  OPEN: "Open",
-  CLOSED: "Cancelled",
-  HOLD: "On Hold",
-};
-
-function listQueryFields(fieldMap) {
-  var fields = "";
-  for (let [key, value] of Object.entries(fieldMap)) {
-    if (key.includes("date")) {
-      fields = fields.concat(
-        `to_char(${key}, 'YYYY-MM-DD') || 'T' || to_char(${key}, 'HH:MI:SS.MSZ') AS ${value},\n`
-      );
-    } else {
-      fields = fields.concat(`${key} AS ${value},\n`);
-    }
-  }
-  fields = fields.slice(0, -2);
-  return fields;
-}
-
-function printResults(res) {
-  console.log(res);
-}
-
-function printRows(res) {
-  console.log(res.rows);
-  return res;
-}
-
-function printFields(res) {
-  res.fields.forEach(function (field) {
-    console.log(`"${field.name}": "",`);
-  });
 }
 
 function failureCallback(error) {
@@ -162,7 +124,6 @@ function printRecordsRaw() {
 // Main Execution
 //////////////////////////////
 
-// ${listQueryFields(FIELD_MAP)}
 // Query the product db.
 var query_text = `
 WITH orders AS
@@ -210,15 +171,19 @@ FROM sfdc_orders;
 console.log(query_text);
 
 function fetchAndLoad() {
-  getDBClient(SECRETS.PG_PWD, env);
+  getDBClient();
   dbClient
     .query(query_text)
     .then((res) => saveRecords(res.rows))
     .then((res) => printRecordsRaw())
-    .then((res) => sfConn.login(SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK))
+    .then((res) =>
+      sfConn.login(process.env.SF_USER, SECRETS.SF_PWD + SECRETS.SF_SEC_TOK)
+    )
     .then((res) => batchUpsert(orderRecords))
     .catch(failureCallback)
     .then((res) => dbClient.end());
 }
 
-fetchAndLoad();
+exports.handler = async (event, context) => {
+  return fetchAndLoad();
+};
