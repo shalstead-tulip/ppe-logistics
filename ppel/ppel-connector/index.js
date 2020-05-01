@@ -254,6 +254,23 @@ function parseSFAddresses(o) {
   return o;
 }
 
+// Map Salesforce order statuses to PPEL order statuses
+const orderStatusMap = {
+  "CSR Review": "CSR-REVIEW",
+  Open: "OPEN",
+  "Order Submitted": "OPEN",
+  "Cancel Submitted": "CLOSED",
+  Cancelled: "CLOSED",
+  Completed: "CLOSED",
+  Shipped: "CLOSED",
+  "Return Submitted": "OPEN",
+  Returned: "CLOSED",
+  "In Process": "OPEN",
+  "Partial Shipped": "OPEN",
+  "Bill Of Material": "OPEN",
+  "On Hold": "HOLD",
+};
+
 // Helper function to promise-ify node request functionality
 const getContent = function (url) {
   // return new pending promise
@@ -402,6 +419,7 @@ exports.handler = async (event, context) => {
 
   if (event.resource == "/order/salesforce") {
     order = parseSFAddresses(order);
+    order.orderStatus = orderStatusMap[order.orderStatus];
   }
 
   return decrypt("PG_PWD_" + env)
