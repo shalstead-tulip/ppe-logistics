@@ -13,7 +13,7 @@ global class TulipOrder {
         Contact c = [SELECT Name, Email, MobilePhone, Title, Affiliation_with_Healthcare_Institution__c, If_Affiliation_is_Other_Please_explain__c, Verified__c FROM Contact WHERE ID=:o.ccrz__Contact__c];
         TulipCustomer tc = new TulipCustomer(c);
 
-        List<ccrz__E_OrderItem__c> oItems = [SELECT ccrz__Product_Name__c, ccrz__Quantity__c  FROM ccrz__E_OrderItem__c WHERE ccrz__Order__c=:o.ID];
+        List<ccrz__E_OrderItem__c> oItems = [SELECT ccrz__Product__c, ccrz__Quantity__c  FROM ccrz__E_OrderItem__c WHERE ccrz__Order__c=:o.ID];
         List<TulipOrderLine> tols = new List<TulipOrderLine>();
 
         for (integer i = 0; i < oItems.size(); i++) {
