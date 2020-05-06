@@ -267,6 +267,22 @@ function parseSFAddresses(o) {
   return o;
 }
 
+// Map Salesforce product SKUs to PPEL product SKUs
+const sfdcSKUMap = {
+  MaskSM00001: "PPE S/M v2",
+  MaskSM00002: "PPE S/M v2",
+  MaskLXL00001: "PPE L/XL v2",
+  MaskLX00002: "PPE L/XL v2",
+};
+
+function mapSFProductSKUs(o) {
+  console.log("--> Mapping Salesforce product SKUs to PPEL product SKUs");
+  for (i = 0; i < o.lines.length; i++) {
+    o.lines[i].product = sfdcSKUMap[o.lines[i].product];
+  }
+  return o;
+}
+
 // Map Salesforce order statuses to PPEL order statuses
 const sfdcOrderStatusMap = {
   "CSR Review": "CSR-REVIEW",
@@ -450,6 +466,7 @@ exports.handler = async (event, context) => {
 
   if (event.resource == "/order/salesforce") {
     order = parseSFAddresses(order);
+    order = mapSFProductSKUs(order);
     order.orderStatus = sfdcOrderStatusMap[order.orderStatus];
   }
 
