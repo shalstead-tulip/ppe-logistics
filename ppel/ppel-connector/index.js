@@ -55,14 +55,23 @@ function getDBClient(pwd, env) {
   return dbClient;
 }
 
+// Sanitize text for SQL insert (handle single quotes)
+function sanitize(field) {
+  // check if field value is a non-null string
+  if (field && typeof field == "string") {
+    return field.replace("'", "''");
+  }
+  return field;
+}
+
 function formattedAddr(address) {
   if (!address) {
     return "NULL";
   }
   if (!address.formatted_address) {
-    return `'${address}'`;
+    return `'${sanitize(address)}'`;
   }
-  return `'${address.formatted_address}'`;
+  return `'${sanitize(address.formatted_address)}'`;
 }
 
 function pointLoc(address) {
@@ -185,8 +194,11 @@ function syncOrder(o) {
   console.log(">>> SYNC NEW RECORD TO PG");
   console.log("--> Prepped order:\n" + JSON.stringify(o, null, 2));
 
-  // TODO: run this sanitization on all strings
-  o.institution.name = o.institution.name.replace("'", "''");
+  // Sanitize notes and names for SQL insert (handle single quotes)
+  o.notes = sanitize(o.notes);
+  o.institution.name = sanitize(o.institution.name);
+  o.institution.notes = sanitize(o.institution.notes);
+  o.customer.notes = sanitize(o.customer.notes);
 
   const i = o.institution;
   const c = o.customer;
