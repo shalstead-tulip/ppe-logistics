@@ -30,6 +30,7 @@ function decrypt(env_var) {
 }
 
 function getDBClient(pwd, env) {
+  console.log(">>> GET POSTGRES DB CLIENT");
   if (env == "DEV") {
     console.log("CONNECTING TO DEV DB");
     dbClient = new pg.Client({
@@ -308,10 +309,27 @@ const getContent = function (url) {
   });
 };
 
-function fetchAddress(rawAddress) {
-  if (!rawAddress) {
-    return null;
+function fetchAddress(entity, addrField) {
+  console.log(`--> Try to fetch geoinfo for field "${addrField}" on entity`);
+  console.log(JSON.stringify(entity, null, 2));
+
+  var rawAddress = entity[addrField];
+
+  if (rawAddress == null) {
+    console.log(`--> Address is null, exiting early`);
+    return Promise.resolve(null);
   }
+
+  if (typeof rawAddress == "object") {
+    console.log(`--> Address is an object, attempting to flatten`);
+    try {
+      rawAddress = flattenA(rawAddress);
+    } catch (err) {
+      console.log("--> Failed to flatten address, throwing error");
+      throw "INVALID ADDRESS FORMAT";
+    }
+  }
+
   console.log(`--> fetching geo info for address: "${rawAddress}"`);
   const paramAddress = rawAddress.replace(" ", "+");
 
@@ -349,15 +367,16 @@ function fetchAddress(rawAddress) {
 
 // Add latitude/longitude to addresses via google geocode API
 function enrichAddresses(o) {
-  return fetchAddress(o.institution.address)
+  console.log(">>> ENRICH ADDRESSES VIA GEOCODE API");
+  return fetchAddress(o.institution, "address")
     .then((addr) => {
       o.institution.address = addr;
     })
-    .then((res) => fetchAddress(o.institution.deliveryAddress))
+    .then((res) => fetchAddress(o.institution, "deliveryAddress"))
     .then((addr) => {
       o.institution.deliveryAddress = addr;
     })
-    .then((res) => fetchAddress(o.customer.address))
+    .then((res) => fetchAddress(o.customer, "address"))
     .then((addr) => {
       o.customer.address = addr;
     })
