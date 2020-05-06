@@ -156,7 +156,8 @@ sfdc_orders AS
 (
 	SELECT
 		external_identifier AS id,
-		trackingnumber AS ccrz__ExtShipTrackNo__c,
+    trackingnumber AS ccrz__ExtShipTrackNo__c,
+    true AS Synced_with_Tulip__c,
 		(CASE
 			WHEN order_status = 'CART' THEN 'CSR Review'
 			WHEN order_status = 'REVIEW' THEN 'CSR Review'
