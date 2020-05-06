@@ -9,8 +9,15 @@ public class TestTulipOrderLine {
         );
         insert p;
 
+        // ORDER
+        ccrz__E_Order__c o = new ccrz__E_Order__c(
+            ccrz__OrderStatus__c = 'CSR Review',
+            ccrz__Note__c = 'something'
+        );
+        insert o;
+
         ccrz__E_OrderItem__c oi = new ccrz__E_OrderItem__c(
-            ccrz__Order__c = 'a1c2i0000005LHlAAM',
+            ccrz__Order__c = o.ID,
             ccrz__Price__c = 1,
             ccrz__SubAmount__c = 1,
             ccrz__Product__c = p.ID,
