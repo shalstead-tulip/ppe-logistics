@@ -22,25 +22,19 @@ function decrypt(env_var) {
 // Define global variable to store database client
 let dbClient;
 
-// Global variable for environment: either DEV or PROD
-const env = "DEV";
-
-// Salesforce Connection Info
-const SF_USER = "steven.halstead+maskson@tulip.co.tulipdev1";
-
 const sfConn = new jsforce.Connection({
   // uncomment below for sandbox
-  loginUrl: "https://test.salesforce.com",
+  loginUrl: process.env.SF_LOGIN_URL,
 });
 
 function getDBClient() {
-  console.log("CONNECTING TO DEV DB");
+  console.log("CONNECTING TO POSTGRES DB");
   dbClient = new pg.Client({
-    host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
+    host: process.env.PG_HOST,
     port: 5432,
     user: "tulip",
     password: SECRETS.PG_PWD,
-    database: "maskson_sfdc_dev",
+    database: process.env.PG_DATABASE,
   });
 
   dbClient.connect();
