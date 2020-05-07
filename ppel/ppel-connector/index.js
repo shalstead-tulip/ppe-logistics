@@ -147,8 +147,8 @@ function buildAddressesQuery(i, c) {
 
 function buildWorkcenterQuery(o, i, c) {
   return `
-  INSERT INTO corps.workcenters (workcenter, createdts)
-    VALUES ('${i.name}', NOW())
+  INSERT INTO corps.workcenters (workcenter, wcname, createdts)
+    VALUES ('${i.name}', '${i.name}', NOW())
   ON CONFLICT DO NOTHING;
   UPDATE corps.workcenters SET
     address = ${formattedAddr(i.address)},
