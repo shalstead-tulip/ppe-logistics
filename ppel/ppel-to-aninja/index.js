@@ -1,6 +1,9 @@
 const AWS = require("aws-sdk");
 const jsforce = require("jsforce");
 const pg = require("pg");
+const https = require("https");
+const url = require("url");
+
 
 var SECRETS = {};
 
