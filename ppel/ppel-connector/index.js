@@ -15,6 +15,9 @@ let dbClient;
 // Global variable for environment: either DEV or PROD
 let env;
 
+// Global variable for API resource/endpoint
+let endpoint;
+
 function decrypt(env_var) {
   const kms = new AWS.KMS();
 
@@ -410,6 +413,7 @@ function postToSlack(res) {
   const m = "`"; // monospace
   const b = "```"; // code block
   var msg = `*ERROR FROM PPEL CONNECTOR LAMBDA - ${env}*
+  ${m}resource: ${endpoint}${m}
   ${m}statusCode: ${res.statusCode}${m} ${b}${res.body}${b}
   _<${getLogURL()}|Cloudwatch Logs>_`;
   return slack.chat
@@ -422,18 +426,29 @@ function postToSlack(res) {
 }
 
 function failureCallback(error) {
-  console.error("Error: " + JSON.stringify(error, null, 2));
-  const response = {
-    statusCode: 500,
-    body: JSON.stringify(
-      { summary: "Internal Server Error", error: error },
-      null,
-      4
-    ),
-    isBase64Encoded: false,
-  };
+  // Try to fail gracefully
+  try {
+    console.error("Error: " + JSON.stringify(error, null, 2));
+    var response = {
+      statusCode: 500,
+      body: JSON.stringify(
+        { summary: "Internal Server Error", error: error },
+        null,
+        4
+      ),
+      isBase64Encoded: false,
+    };
 
-  return postToSlack(response);
+    if (endpoint == "/order/shopify") {
+      response.statusCode = 200;
+    }
+
+    return postToSlack(response);
+  } catch (err) {
+    // fallback "rough" failure
+    console.log(`>>> FAILED TO FAIL GRACEFULLY DUE TO:\n${err}`);
+    throw err;
+  }
 }
 
 function successCallback(res) {
@@ -449,31 +464,38 @@ function successCallback(res) {
 
 // TODO: encrypt google API key
 exports.handler = async (event, context) => {
-  console.log("NEW EVENT:", event);
-  console.log();
-  podContext = context;
+  try {
+    console.log("NEW EVENT:", event);
+    console.log();
+    podContext = context;
+    endpoint = event.resource;
 
-  env = event.stageVariables.environment;
+    env = event.stageVariables.environment;
 
-  if (
-    event.resource == "/order" &&
-    "Bearer " + process.env["AUTH_TOKEN_" + env] != event.headers.Authorization
-  ) {
-    return failureCallback("Invalid bearer token");
+    if (
+      endpoint == "/order" &&
+      "Bearer " + process.env["AUTH_TOKEN_" + env] !=
+        event.headers.Authorization
+    ) {
+      return failureCallback("Invalid bearer token");
+    }
+
+    var order = JSON.parse(event.body);
+
+    if (endpoint == "/order/salesforce") {
+      order = parseSFAddresses(order);
+      order = mapSFProductSKUs(order);
+      order.orderStatus = sfdcOrderStatusMap[order.orderStatus];
+    }
+
+    return decrypt("PG_PWD_" + env)
+      .then((pwd) => getDBClient(pwd, env))
+      .then((res) => enrichAddresses(order))
+      .then((o) => syncOrder(o))
+      .then((res) => successCallback(res))
+      .catch((error) => failureCallback(error));
+  } catch (err) {
+    console.log(">>> UNEXPECTED ERROR RUNNING LAMBDA");
+    return failureCallback(err);
   }
-
-  var order = JSON.parse(event.body);
-
-  if (event.resource == "/order/salesforce") {
-    order = parseSFAddresses(order);
-    order = mapSFProductSKUs(order);
-    order.orderStatus = sfdcOrderStatusMap[order.orderStatus];
-  }
-
-  return decrypt("PG_PWD_" + env)
-    .then((pwd) => getDBClient(pwd, env))
-    .then((res) => enrichAddresses(order))
-    .then((o) => syncOrder(o))
-    .then((res) => successCallback(res))
-    .catch((error) => failureCallback(error));
 };
