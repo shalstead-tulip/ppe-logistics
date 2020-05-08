@@ -252,15 +252,18 @@ function syncOrder(o) {
   // return dbClient.query("SELECT * FROM corps.demands ORDER BY createdts DESC NULLS LAST LIMIT 1");
 }
 
-// Helper function to "flatten" salesforce address objects
+// Helper function to "flatten" address objects
 function flattenA(a) {
   if (!a) {
     return a;
   }
-  return `${a.street}, ${a.city}, ${a.state} ${a.postalCode} ${a.country}`.replace(
-    "null",
-    ""
-  );
+  let aFlat;
+  if (endpoint == "/order/shopify") {
+    aFlat = `${a.address1} ${a.address2}, ${a.city}, ${a.province_code} ${a.zip} ${a.country_code}`;
+  } else {
+    aFlat = `${a.street}, ${a.city}, ${a.state} ${a.postalCode} ${a.country}`;
+  }
+  return aFlat.replace("null", "");
 }
 
 function parseSFAddresses(o) {
@@ -302,6 +305,52 @@ const sfdcOrderStatusMap = {
   "Bill Of Material": "OPEN",
   "On Hold": "HOLD",
 };
+
+function parseShopifyLines(lines) {
+  var newLines = [];
+  for (l of lines) {
+    const newL = {
+      product: l.sku,
+      quantity: l.quantity,
+    };
+    newLines.push(newL);
+  }
+  return newLines;
+}
+
+function parseShopifyOrder(o) {
+  console.log(">>> Parsing order from Shopify");
+
+  const orderOrg = o.line_items[0].vendor;
+
+  var newOrder = {
+    externalID: o.id,
+    orderID: `SHOP-${orderOrg}-${o.order_number}`,
+    orderStatus: "OPEN", // should it come in as OPEN or CSR-REVIEW?
+    org: orderOrg, // assume vendor is same for all lines
+    notes: o.note,
+    institution: {
+      name: o.customer.default_address.company,
+      address: flattenA(o.billing_address),
+      deliveryAddress: flattenA(o.shipping_address),
+      notes: "",
+    },
+    customer: {
+      address: flattenA(o.customer.default_address),
+      fullName: o.customer.first_name + " " + o.customer.last_name,
+      affiliation: "",
+      phone: o.customer.phone,
+      email: o.customer.email,
+      notes: o.customer.note,
+      legalStatus: "OPEN", //should this be OPEN? or something else?
+    },
+    lines: parseShopifyLines(o.line_items),
+  };
+
+  console.log(`--> Parsed Order:\n${JSON.stringify(newOrder, null, 2)}`);
+
+  return newOrder;
+}
 
 // Helper function to promise-ify node request functionality
 const getContent = function (url) {
@@ -439,6 +488,8 @@ function failureCallback(error) {
       isBase64Encoded: false,
     };
 
+    // Shopify endpoint is being hit with a webhook that expects a 200 response,
+    // otherwise it will retry sending repeatedly
     if (endpoint == "/order/shopify") {
       response.statusCode = 200;
     }
@@ -486,6 +537,10 @@ exports.handler = async (event, context) => {
       order = parseSFAddresses(order);
       order = mapSFProductSKUs(order);
       order.orderStatus = sfdcOrderStatusMap[order.orderStatus];
+    }
+
+    if (endpoint == "/order/shopify") {
+      order = parseShopifyOrder(order);
     }
 
     return decrypt("PG_PWD_" + env)
