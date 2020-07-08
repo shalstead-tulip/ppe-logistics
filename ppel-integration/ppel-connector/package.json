@@ -6,8 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "shalstead",
-  "license": "ISC",
+  "author": "Steven Halstead <steven.halstead@tulip.co>",
+  "license": "Apache-2.0",
   "dependencies": {
     "@slack/web-api": "^5.8.0",
     "aws-sdk": "^2.663.0",
