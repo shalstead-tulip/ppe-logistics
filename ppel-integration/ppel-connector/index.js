@@ -37,20 +37,20 @@ function getDBClient(pwd, env) {
   if (env == "DEV") {
     console.log("CONNECTING TO DEV DB");
     dbClient = new pg.Client({
-      host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-      port: 5432,
-      user: "tulip",
+      host: process.env.PG_HOST_DEV,
+      port: process.env.PG_PORT_DEV,
+      user: process.env.PG_USER_DEV,
       password: pwd,
-      database: "maskson_sfdc_dev",
+      database: process.env.PG_DATABASE_DEV,
     });
   } else if (env == "PROD") {
     console.log("CONNECTING TO PROD DB");
     dbClient = new pg.Client({
-      host: "three-d-corps-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-      port: 5432,
-      user: "tulip",
+      host: process.env.PG_HOST_PROD,
+      port: process.env.PG_PORT_PROD,
+      user: process.env.PG_USER_PROD,
       password: pwd,
-      database: "three_d_corps",
+      database: process.env.PG_DATABASE_PROD,
     });
   }
 

@@ -31,8 +31,8 @@ function getDBClient() {
   console.log("CONNECTING TO POSTGRES DB");
   dbClient = new pg.Client({
     host: process.env.PG_HOST,
-    port: 5432,
-    user: "tulip",
+    port: process.env.PG_PORT,
+    user: process.env.PG_USER,
     password: SECRETS.PG_PWD,
     database: process.env.PG_DATABASE,
   });

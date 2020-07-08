@@ -5,17 +5,17 @@ const Wal2JSONListener = require("node-wal2json");
 const { SECRETS } = require("./local-secrets.js");
 
 // Salesforce Connection Info
-const username = "steven.halstead+maskson@tulip.co.tulipdev1";
+const username = process.env.SF_USER;
 const password = SECRETS.SF_PWD;
 const securityToken = SECRETS.SF_SEC_TOK;
 
 // Postgres Connection Info
 const pgClient = new pg.Client({
-  host: "maskson-sfdc-dev-poc-db.cliunwsqnhh7.us-east-1.rds.amazonaws.com",
-  port: 5432,
-  user: "tulip",
+  host: process.env.PG_HOST,
+  port: process.env.PG_PORT,
+  user: process.env.PG_USER,
   password: SECRETS.PG_PWD,
-  database: "maskson_sfdc_dev",
+  database: process.env.PG_DATABASE,
 });
 
 const sfConn = new jsforce.Connection({
